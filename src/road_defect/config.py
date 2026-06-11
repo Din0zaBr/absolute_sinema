@@ -72,7 +72,8 @@ class ModelCandidate:
 DETECTOR_CANDIDATES = [
     ModelCandidate(
         name="rezzzq-yolo12s-rdd2022", source="hf_hub",
-        repo_id="rezzzq/yolo12s-road-damage-rdd2022", filename="best.pt",
+        repo_id="rezzzq/yolo12s-road-damage-rdd2022",
+        filename="yolo12s_RDD2022_best.pt",
         note="5 классов вкл. Repair; полный RDD2022 (ближе к РФ)",
     ),
     ModelCandidate(
