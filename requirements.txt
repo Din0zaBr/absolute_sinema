@@ -1,0 +1,21 @@
+# --- ядро инференса (CPU) ---
+# torch/torchvision ставить с CPU-индекса:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+ultralytics            # AGPL-3.0 — для продукта ре-экспортить в ONNX (см. дизайн §4)
+opencv-python-headless
+numpy
+scikit-image
+pillow
+huggingface_hub
+
+# --- сегментация формы (опц.; при отсутствии — фолбэк GrabCut) ---
+# pip install git+https://github.com/ChaoningZhang/MobileSAM.git
+# mobile-sam
+
+# --- относительная глубина (опц.) ---
+# transformers          # Depth Anything V2 Small (Apache-2.0)
+
+# --- dev ---
+pytest
