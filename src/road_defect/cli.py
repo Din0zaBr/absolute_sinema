@@ -17,6 +17,13 @@ IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 
 def main(argv=None) -> int:
+    # На Windows перенаправленный stdout кодируется cp1251 — символы вне неё
+    # (стрелки, галочки) роняют print. Заменяем некодируемое, а не падаем.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:  # noqa: BLE001 — нестандартный поток (тесты, embed)
+            pass
     ap = argparse.ArgumentParser(description="Анализ дорожных дефектов по фото.")
     ap.add_argument("--input", required=True, help="файл или папка с изображениями")
     ap.add_argument("--output", default=str(config.OUTPUTS_DIR), help="папка результатов")
@@ -44,7 +51,7 @@ def main(argv=None) -> int:
     cfg = config.InferenceConfig(det_conf=args.conf)
     pipe = DefectPipeline(cfg=cfg, use_depth=args.depth, road_category=args.road_category)
 
-    print(f"Обработка {len(images)} изображений → {out}")
+    print(f"Обработка {len(images)} изображений -> {out}")
     ok_count = 0
     used_stems: set = set()
     for img_path in images:

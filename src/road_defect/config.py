@@ -96,6 +96,13 @@ SEGMENTER = ModelCandidate(
     note="Apache-2.0; box-prompt; CPU-friendly",
 )
 
+# Тот же MobileSAM через встроенную реализацию ultralytics.models.sam:
+# не требует пакета mobile_sam, веса качаются с CDN ultralytics по имени файла.
+SEGMENTER_ULTRALYTICS = ModelCandidate(
+    name="mobile_sam_ultralytics", source="ultralytics", filename="mobile_sam.pt",
+    note="MobileSAM без пакета mobile_sam; Apache-2.0 веса",
+)
+
 # Относительная глубина (опционально).
 DEPTH_MODEL = ModelCandidate(
     name="depth-anything-v2-small", source="hf_hub",

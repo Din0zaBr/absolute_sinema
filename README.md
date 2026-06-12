@@ -26,9 +26,15 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
-# опционально (лучшая сегментация формы):
-pip install git+https://github.com/ChaoningZhang/MobileSAM.git
+# опционально (относительная глубина, флаг --depth):
+pip install transformers
 ```
+
+Сегментация формы MobileSAM работает из коробки — через встроенную реализацию
+`ultralytics.models.sam`, веса (`mobile_sam.pt`, ~39 МБ, Apache-2.0) докачиваются
+автоматически в `models/`. Официальный пакет `mobile_sam` ставить не обязательно;
+если он установлен (`pip install git+https://github.com/ChaoningZhang/MobileSAM.git`),
+движок использует его в первую очередь.
 
 ## Запуск
 
@@ -55,7 +61,7 @@ src/road_defect/
   config.py        # ГОСТ-константы, классы, реестр моделей
   pipeline.py      # оркестратор фото → отчёт
   detect.py        # детектор (YOLO, готовые веса)
-  segment.py       # сегментация формы (MobileSAM / GrabCut-фолбэк)
+  segment.py       # сегментация формы (MobileSAM: пакет или ultralytics / GrabCut-фолбэк)
   shape.py         # дескрипторы формы из маски
   scale.py         # масштаб по люку (ГОСТ 3634, обод крышки 646 мм) + гомография
   depth.py         # относительная глубина (опц.)

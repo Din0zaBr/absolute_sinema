@@ -10,12 +10,14 @@ scikit-image
 pillow
 huggingface_hub
 
-# --- сегментация формы (опц.; при отсутствии — фолбэк GrabCut) ---
+# --- сегментация формы ---
+# MobileSAM работает из коробки через ultralytics.models.sam (веса качаются сами).
+# Официальный пакет ставить не обязательно (если стоит — используется первым):
 # pip install git+https://github.com/ChaoningZhang/MobileSAM.git
-# mobile-sam
+# Без ultralytics-SAM и пакета — фолбэк GrabCut.
 
-# --- относительная глубина (опц.) ---
-# transformers          # Depth Anything V2 Small (Apache-2.0)
+# --- относительная глубина (опц., флаг --depth) ---
+# transformers          # Depth Anything V2 Small (Apache-2.0); установлен в .venv
 
 # --- dev ---
 pytest
