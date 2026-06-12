@@ -5,6 +5,7 @@
 размеры в сантиметрах и классифицирует серьёзность по **ГОСТ Р 50597-2017**.
 
 > Подробная документация проекта (решения и их обоснования): [`docs/PROJECT.md`](docs/PROJECT.md)
+> Сценарий презентации и демо: [`docs/DEMO.md`](docs/DEMO.md)
 > Полный дизайн: [`docs/superpowers/specs/2026-06-10-road-defect-cv-engine-design.md`](docs/superpowers/specs/2026-06-10-road-defect-cv-engine-design.md)
 > Журнал работ: [`docs/STATUS.md`](docs/STATUS.md)
 
@@ -43,17 +44,22 @@ pip install transformers
 ```powershell
 # анализ папки с фото → outputs/*.json + *_annotated.jpg
 $env:PYTHONPATH="src"; python -m road_defect.cli --input . --output outputs
+#   флаги: --depth (относит. глубина), --ensemble (второй pothole-проход),
+#          --conf, --road-category, --blob-ref (см. docs/PROJECT.md §7)
 
 # смок-тест на демо-фото с диагностикой
 $env:PYTHONPATH="src"; python scripts/smoke_test.py
+
+# автономный HTML-отчёт для презентации
+python scripts/make_demo_report.py --outputs outputs --originals .
 ```
 
 ## Тесты
 
 ```powershell
-pip install pytest
-python -m pytest -q            # быстрые юнит-тесты (без моделей)
-python -m pytest -m models     # интеграционные (качают веса)
+python -m pytest -q                  # 52 юнит-теста (без сети и моделей)
+python scripts/smoke_test.py         # интеграционный смок (качает веса)
+python scripts/validate_outputs.py   # инварианты JSON-отчётов после смока
 ```
 
 ## Структура
@@ -73,11 +79,17 @@ src/road_defect/
   report.py        # JSON-контракт + аннотированное изображение
   imgio.py         # чтение/запись изображений (юникод-пути Windows)
   cli.py           # командная строка
+scripts/
+  smoke_test.py        # смок на демо-фото      | validate_outputs.py  # инварианты JSON
+  detect_sweep.py      # разбор пропусков       | scale_debug.py       # диагностика эталона
+  make_demo_report.py  # HTML-отчёт для презентации
+  prepare_rdd2022.py   # RDD2022 VOC→YOLO       | val_rdd2022.py       # mAP-стенд
+  finetune_rdd2022.py  # дообучение от чекпоинта rezzzq
 ```
 
 ## Лицензии моделей (для продакшена)
 
 `ultralytics` — **AGPL-3.0**: в распространяемом продукте инференс гнать через ONNX
 (`onnxruntime`), без импорта `ultralytics`. MobileSAM и Depth Anything V2 **Small** —
-Apache-2.0. Depth Anything Base/Large — CC-BY-NC (не использовать). Подробнее — §4 дизайна.
-```
+Apache-2.0. Depth Anything Base/Large — CC-BY-NC (не использовать). Датасет RDD2022 —
+CC BY-SA 4.0. Подробнее — §4 дизайна и `docs/PROJECT.md` §4.10.
