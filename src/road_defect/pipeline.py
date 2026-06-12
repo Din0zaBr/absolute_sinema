@@ -35,16 +35,20 @@ class DefectPipeline:
         H, W = img.shape[:2]
         warnings: list[str] = []
 
-        # 1) масштаб по эталону (люк); геометрия для overlay — из того же замера
-        ref = scale_mod.scale_from_manhole(img, cfg=self.cfg)
+        # 1) детекция — первой: её bbox'ы исключаются из кандидатов в эталоны
+        #    (круглая яма/тёмная заплатка не должна стать «люком» масштаба)
+        detections = self.detector.detect(img)
+
+        # 2) масштаб по эталону (люк); геометрия для overlay — из того же замера
+        ref = scale_mod.scale_from_manhole(
+            img, cfg=self.cfg,
+            exclude_boxes=[d.bbox_xywh for d in detections])
         if not ref.available:
             warnings.append(ref.note or
                             "Эталон (люк) в кадре не найден — метрические размеры недоступны.")
         mm_per_px = ref.mm_per_px if ref.available else None
         mode = "single_with_reference" if ref.available else "single"
 
-        # 2) детекция
-        detections = self.detector.detect(img)
         if self.detector.is_fallback:
             warnings.append("Используется COCO-фолбэк детектора (нет весов под дефекты) — "
                             "классы не дорожные; это лишь проверка конвейера.")
@@ -54,9 +58,18 @@ class DefectPipeline:
         defects, masks = [], []
         for i, det in enumerate(detections, start=1):
             # 3) маска формы
-            mask = det.mask if det.mask is not None else \
-                self.segmenter.segment(img, det.bbox_xywh)
-            if mask is None or np.asarray(mask).sum() < self.cfg.mask_min_area_px:
+            # Линейные трещины легально тонкие — общий порог терял их целиком.
+            min_area = (self.cfg.mask_min_area_linear_px
+                        if det.cls_name in config.LINEAR_DEFECT_CLASSES
+                        else self.cfg.mask_min_area_px)
+            if det.mask is not None:
+                mask, mask_method = det.mask, "detector_mask"
+            else:
+                mask = self.segmenter.segment(img, det.bbox_xywh,
+                                              cls_name=det.cls_name,
+                                              min_area=min_area)
+                mask_method = self.segmenter.last_method
+            if mask is None or np.asarray(mask).sum() < min_area:
                 continue
             sd = shape_mod.describe_mask(mask)
             if sd is None:
@@ -95,6 +108,7 @@ class DefectPipeline:
                 "raw_label": det.raw_label,
                 "confidence": round(det.confidence, 3),
                 "bbox_px": [round(v, 1) for v in det.bbox_xywh],
+                "mask_method": mask_method,
                 "mask_rle": report_mod.mask_to_rle(mask),
                 "shape": sd.to_dict(),
                 "metric": metric,

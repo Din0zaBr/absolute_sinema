@@ -30,6 +30,9 @@ def main(argv=None) -> int:
     ap.add_argument("--depth", action="store_true", help="включить относительную глубину")
     ap.add_argument("--road-category", default="IV", help="категория дороги для сроков ГОСТ")
     ap.add_argument("--conf", type=float, default=config.DEFAULT_INFERENCE.det_conf)
+    ap.add_argument("--blob-ref", action="store_true",
+                    help="разрешить эталон по тёмному эллипсу при косом виде "
+                         "(экспериментально: риск ложного масштаба, см. STATUS)")
     args = ap.parse_args(argv)
 
     inp = Path(args.input)
@@ -48,7 +51,8 @@ def main(argv=None) -> int:
         print(f"Нет изображений в {inp}", file=sys.stderr)
         return 1
 
-    cfg = config.InferenceConfig(det_conf=args.conf)
+    cfg = config.InferenceConfig(det_conf=args.conf,
+                                 allow_blob_reference=args.blob_ref)
     pipe = DefectPipeline(cfg=cfg, use_depth=args.depth, road_category=args.road_category)
 
     print(f"Обработка {len(images)} изображений -> {out}")

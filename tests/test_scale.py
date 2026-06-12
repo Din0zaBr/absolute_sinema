@@ -10,6 +10,7 @@ from road_defect import config
 from road_defect.scale import (
     ReferenceMeasurement,
     detect_manhole_circle,
+    detect_manhole_ellipses,
     homography_from_4_points,
     measure_distance_mm,
     scale_from_manhole,
@@ -47,6 +48,73 @@ def test_scale_from_manhole_synthetic():
     assert ref.known_mm == config.GOST3634_COVER_OUTER_MM
     assert math.isclose(ref.mm_per_px, 646.0 / 1200.0, rel_tol=0.1)
     assert ref.circle_px is not None and ref.ellipse_px is not None
+
+
+def _synthetic_tilted_manhole(size=(3000, 4000), center=(2000, 1500),
+                              semi_axes=(600, 300)):
+    """Косой вид: люк сплюснут перспективой в эллипс (здесь 2:1, наклон 60°)."""
+    h, w = size
+    img = np.full((h, w, 3), 128, np.uint8)
+    cv2.ellipse(img, center, semi_axes, 0, 0, 360, (40, 40, 40), -1)
+    return img
+
+
+def test_tilted_manhole_found_via_ellipse_path_opt_in():
+    # HoughCircles не видит эллипс 2:1 — работает только блоб-путь (opt-in).
+    img = _synthetic_tilted_manhole()
+    ref = scale_from_manhole(img, allow_blob_reference=True)
+    assert ref.available
+    assert ref.method == "dark_blob_ellipse"
+    # большая ось 1200 px = 646 мм
+    assert math.isclose(ref.mm_per_px, 646.0 / 1200.0, rel_tol=0.12)
+    assert ref.tilt_deg > 40 and ref.confidence == "low"  # честно: вид косой
+
+
+def test_blob_reference_disabled_by_default():
+    # По умолчанию блоб-путь выключен: на реальном фото тень под бордюром
+    # прошла все фильтры и стала ложным эталоном (2026-06-12). До «золотой»
+    # валидации масштаба (§11) косой люк честно не выдаёт масштаб.
+    img = _synthetic_tilted_manhole()
+    assert not scale_from_manhole(img).available
+
+
+def test_very_flat_ellipse_rejected_even_opt_in():
+    # Аспект < 0.45 (наклон > ~63°) — отбой: там и масштаб бессмыслен,
+    # и основной источник ложных эталонов (тени).
+    img = _synthetic_tilted_manhole(semi_axes=(600, 160))
+    assert detect_manhole_ellipses(img) == []
+    assert not scale_from_manhole(img, allow_blob_reference=True).available
+
+
+def test_defect_bbox_excluded_from_reference_candidates():
+    # Тёмный эллипс, накрытый bbox детекции (круглая яма), эталоном не становится.
+    img = _synthetic_tilted_manhole()
+    ref = scale_from_manhole(img, exclude_boxes=[(1300, 1200, 1400, 700)],
+                             allow_blob_reference=True)
+    assert not ref.available
+
+
+def test_cut_off_ellipse_at_frame_edge_rejected():
+    # Обрезанный кадром люк не измерить — эталоном не становится.
+    img = _synthetic_tilted_manhole(center=(300, 1500))  # полуось 600 > 300
+    assert detect_manhole_ellipses(img) == []
+
+
+def test_soft_dark_stain_rejected_by_edge_support():
+    # Размытое тёмное пятно (масло/тень): нет резкой кромки — не эталон.
+    img = _synthetic_tilted_manhole()
+    img = cv2.GaussianBlur(img, (151, 151), 0)
+    assert detect_manhole_ellipses(img) == []
+    assert not scale_from_manhole(img).available
+
+
+def test_dark_crack_is_not_an_ellipse_candidate():
+    # Толстая тёмная ломаная (трещина/тень) не проходит фильтр заполненности.
+    img = np.full((3000, 4000, 3), 128, np.uint8)
+    pts = np.array([[200, 2800], [1200, 1500], [2200, 1800], [3800, 300]], np.int32)
+    cv2.polylines(img, [pts], False, (40, 40, 40), 25)
+    assert detect_manhole_ellipses(img) == []
+    assert not scale_from_manhole(img).available
 
 
 def test_reference_to_dict_matches_contract():
