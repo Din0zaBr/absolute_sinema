@@ -70,6 +70,11 @@ class DefectPipeline:
                                               min_area=min_area)
                 mask_method = self.segmenter.last_method
             if mask is None or np.asarray(mask).sum() < min_area:
+                # Не молчим: уверенная детекция без валидной маски — это
+                # информация для оператора, а не повод исчезнуть из отчёта.
+                warnings.append(
+                    f"Детекция {det.cls_name} (conf {det.confidence:.2f}) "
+                    f"отброшена: маска меньше {min_area} px.")
                 continue
             sd = shape_mod.describe_mask(mask)
             if sd is None:
@@ -80,6 +85,7 @@ class DefectPipeline:
                       "equivalent_diameter_cm": None, "length_cm": None,
                       "width_cm": None, "area_cm2": None, "area_m2": None,
                       "depth_cm": None, "depth_bucket": None,
+                      "depth_method": None,  # ключи стабильны и без --depth
                       "depth_certifiable": False,
                       "confidence": None, "error_band_pct": None}
             length_cm = area_m2 = None

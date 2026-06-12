@@ -229,14 +229,24 @@ def fit_manhole_ellipse(image_bgr: np.ndarray, circle):
     roi = image_bgr[y0:y1, x0:x1]
     if roi.size == 0:
         return None
-    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    # Canny+контуры на копии <=768 px: ROI фантомного кандидата может быть
+    # почти полнокадровым, и полный прогон для каждого из 8 кандидатов давал
+    # секунды на 12-МП кадр (находка ревью 2026-06-12). Точность достаточна:
+    # эллипс уточняется субпиксельно самим fitEllipse, координаты масштабируются.
+    s = min(1.0, 768.0 / max(roi.shape[:2]))
+    small = roi if s >= 1.0 else cv2.resize(
+        roi, (max(1, int(roi.shape[1] * s)), max(1, int(roi.shape[0] * s))),
+        interpolation=cv2.INTER_AREA)
+    rs = r * s
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(gray, 50, 150)
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     best, best_dist = None, float("inf")
     for c in contours:
-        if len(c) >= 5 and cv2.contourArea(c) > 0.2 * np.pi * r * r:
+        if len(c) >= 5 and cv2.contourArea(c) > 0.2 * np.pi * rs * rs:
             (ecx, ecy), (MA, ma), ang = cv2.fitEllipse(c)
+            ecx, ecy, MA, ma = ecx / s, ecy / s, MA / s, ma / s
             dist = float(np.hypot(ecx + x0 - cx, ecy + y0 - cy))
             if dist < best_dist:
                 best, best_dist = ((ecx + x0, ecy + y0), (MA, ma), ang), dist

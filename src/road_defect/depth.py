@@ -18,6 +18,8 @@ class RelativeDepth:
         self._pipe = None
         self._tried = False
         self.available = False
+        self._frame_key = None   # кадр, для которого закэширована карта глубины
+        self._depth_map = None   # полнокадровый инференс — 1 раз на кадр, не на дефект
 
     def _load(self):
         if self._tried:
@@ -35,6 +37,24 @@ class RelativeDepth:
             self._pipe = None
             self.available = False
 
+    def _frame_depth(self, image_bgr: np.ndarray) -> np.ndarray:
+        """Карта глубины кадра с кэшем: N дефектов = 1 инференс, не N.
+
+        (До фикса 2026-06-12 полный инференс модели гонялся на КАЖДЫЙ дефект.)
+        """
+        import hashlib
+
+        key = (image_bgr.shape, hashlib.md5(image_bgr.tobytes()).hexdigest())
+        if key != self._frame_key:
+            import cv2
+            from PIL import Image
+
+            rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            depth = self._pipe(Image.fromarray(rgb))["depth"]
+            self._depth_map = np.asarray(depth, dtype=np.float32)
+            self._frame_key = key
+        return self._depth_map
+
     def relative_bucket(self, image_bgr: np.ndarray, mask: np.ndarray) -> dict:
         """Относительная глубина дефекта vs окружающее покрытие.
 
@@ -48,11 +68,8 @@ class RelativeDepth:
             return result
 
         import cv2
-        from PIL import Image
 
-        rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        depth = self._pipe(Image.fromarray(rgb))["depth"]
-        depth = np.asarray(depth, dtype=np.float32)
+        depth = self._frame_depth(image_bgr)
         if depth.shape != mask.shape:
             depth = cv2.resize(depth, (mask.shape[1], mask.shape[0]))
 

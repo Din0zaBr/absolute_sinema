@@ -41,13 +41,51 @@ def _acquire_weights(cand: config.ModelCandidate) -> str | None:
     return None
 
 
+def _iou_xywh(a: tuple, b: tuple) -> float:
+    """IoU двух bbox в формате (x, y, w, h)."""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    ix0, iy0 = max(ax, bx), max(ay, by)
+    ix1, iy1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    iw, ih = max(0.0, ix1 - ix0), max(0.0, iy1 - iy0)
+    inter = iw * ih
+    union = aw * ah + bw * bh - inter
+    return inter / union if union > 0 else 0.0
+
+
+def merge_detections(primary: list, secondary: list,
+                     iou_thr: float = 0.5) -> list:
+    """Слить детекции второго прохода в основной список.
+
+    Вторичная детекция добавляется, только если не пересекается (IoU < порога)
+    ни с одной первичной ТОГО ЖЕ класса — основной детектор остаётся
+    авторитетом там, где оба видят дефект.
+    """
+    merged = list(primary)
+    for det in secondary:
+        if any(d.cls_name == det.cls_name
+               and _iou_xywh(d.bbox_xywh, det.bbox_xywh) >= iou_thr
+               for d in primary):
+            continue
+        merged.append(det)
+    return merged
+
+
 class Detector:
-    """Обёртка над YOLO с авто-выбором рабочих весов."""
+    """Обёртка над YOLO с авто-выбором рабочих весов.
+
+    cfg.ensemble_pothole=True добавляет второй проход одноклассовым
+    pothole-seg детектором (keremberke): rezzzq слеп к нетипичным ямам
+    (засыпанная яма — 0 детекций при conf=0.01, разбор 2026-06-12), а
+    keremberke видел её с conf=0.81. Слияние — merge_detections.
+    """
 
     def __init__(self, cfg: config.InferenceConfig = config.DEFAULT_INFERENCE,
                  candidates: list[config.ModelCandidate] | None = None):
         self.cfg = cfg
         self._model = None
+        self._pothole_model = None      # второй проход (ансамбль)
+        self.ensemble_active = False
         self.active: config.ModelCandidate | None = None
         self.is_fallback = False
         self._candidates = candidates or config.DETECTOR_CANDIDATES
@@ -70,10 +108,39 @@ class Detector:
                 continue
         raise RuntimeError(f"Не удалось загрузить ни один детектор. Последняя ошибка: {last_err}")
 
+    def _load_pothole_second_pass(self) -> None:
+        """Лениво поднять второй pothole-детектор для ансамбля."""
+        if self._pothole_model is not None or not self.cfg.ensemble_pothole:
+            return
+        if self.active and self.active.name == "keremberke-yolov8m-pothole-seg":
+            return  # основной уже keremberke — второй проход бессмыслен
+        from ultralytics import YOLO
+
+        cand = next((c for c in config.DETECTOR_CANDIDATES
+                     if c.name == "keremberke-yolov8m-pothole-seg"), None)
+        weights = _acquire_weights(cand) if cand else None
+        if weights is None:
+            return
+        try:
+            self._pothole_model = YOLO(weights)
+            self.ensemble_active = True
+        except Exception:
+            self._pothole_model = None
+
     def detect(self, image_bgr: np.ndarray) -> list[Detection]:
         if self._model is None:
             self.load()
-        results = self._model.predict(
+        out = self._predict(self._model, image_bgr)
+        if self.cfg.ensemble_pothole:
+            self._load_pothole_second_pass()
+            if self._pothole_model is not None:
+                extra = [d for d in self._predict(self._pothole_model, image_bgr)
+                         if d.cls_name == "pothole"]
+                out = merge_detections(out, extra)
+        return out
+
+    def _predict(self, model, image_bgr: np.ndarray) -> list[Detection]:
+        results = model.predict(
             image_bgr, conf=self.cfg.det_conf, iou=self.cfg.det_iou,
             imgsz=self.cfg.imgsz, retina_masks=True, verbose=False,
         )

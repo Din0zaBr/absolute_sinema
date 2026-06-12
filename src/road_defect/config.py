@@ -76,6 +76,12 @@ class ModelCandidate:
 
 # Детекторы дорожных дефектов — пробуем по порядку, берём первый загрузившийся.
 DETECTOR_CANDIDATES = [
+    # Дообученные локально веса (scripts/finetune_rdd2022.py) подхватываются
+    # автоматически, если файл существует; иначе цепочка идёт дальше.
+    ModelCandidate(
+        name="local-finetuned", source="local", filename="finetuned_best.pt",
+        note="локальное дообучение от чекпоинта rezzzq (см. scripts/finetune_rdd2022.py)",
+    ),
     ModelCandidate(
         name="rezzzq-yolo12s-rdd2022", source="hf_hub",
         repo_id="rezzzq/yolo12s-road-damage-rdd2022",
@@ -128,8 +134,12 @@ class InferenceConfig:
     # радиусы задаются долей короткой стороны кадра, а не пикселями.
     manhole_min_radius_frac: float = 0.03   # мин. радиус люка (доля кадра)
     manhole_max_radius_frac: float = 0.45   # макс. радиус люка (доля кадра)
-    depth_buckets_cm: tuple = (2.0, 5.0)  # границы мелкая|средняя|глубокая (относит.)
     mask_min_area_px: int = 200       # отбраковка крошечных масок (площадные)
+    # Второй pothole-проход (keremberke seg) поверх основного детектора:
+    # лечит слепоту rezzzq к нетипичным ямам (засыпанная яма на 6dyN — 0
+    # детекций даже при conf=0.01). Выключен по умолчанию: x2 время инференса
+    # и отступление от дизайна §4 «один выбор на роль» — включать осознанно.
+    ensemble_pothole: bool = False
     # Линейные трещины легально тонкие: 3px x 60px — уже валидная маска.
     # Общий порог 200 терял уверенные детекции трещин целиком (смок 2026-06-12).
     mask_min_area_linear_px: int = 60

@@ -79,10 +79,13 @@ class Segmenter:
     def _set_frame(self, image_bgr: np.ndarray) -> None:
         """Прогнать image encoder один раз на кадр (тяжёлая операция на CPU).
 
-        Кадр опознаётся по форме + разреженной выборке пикселей: повторные
-        вызовы для того же кадра (N дефектов) переиспользуют эмбеддинг.
+        Кадр опознаётся по md5 содержимого (разреженная выборка пикселей могла
+        столкнуться на разных кадрах — ревью 2026-06-12): повторные вызовы для
+        того же кадра (N дефектов) переиспользуют эмбеддинг; md5 ~десятки мс
+        против секунд энкодера.
         """
-        key = (image_bgr.shape, image_bgr[::97, ::97].tobytes())
+        import hashlib
+        key = (image_bgr.shape, hashlib.md5(image_bgr.tobytes()).hexdigest())
         if key == self._frame_key:
             return
         if self.backend == "mobile_sam":
@@ -203,34 +206,47 @@ class Segmenter:
         for i in range(1, n):
             if stats[i, cv2.CC_STAT_AREA] < min_area:
                 continue
-            ys, xs = np.nonzero(labels == i)
+            comp = labels == i  # один скан компоненты, не два
+            ys, xs = np.nonzero(comp)
             cov = np.cov(np.vstack([xs, ys]).astype(np.float64))
             evals = np.linalg.eigvalsh(cov)  # по возрастанию
             elongation = float(np.sqrt(evals[1] / (evals[0] + 1e-6)))
             if elongation >= 2.0:
-                keep[labels == i] = True
+                keep |= comp
         if not keep.any() or keep.mean() > 0.45:
             return None
         return keep
 
     @staticmethod
     def _grabcut(image_bgr: np.ndarray, rect) -> np.ndarray:
-        """Грубый фолбэк: GrabCut в пределах bbox."""
+        """Грубый фолбэк: GrabCut в пределах bbox.
+
+        Граф строится по КРОПУ с запасом вокруг bbox, а не по всему кадру:
+        на 12-МП фото полнокадровый GrabCut — десятки секунд и гигабайты
+        (находка ревью 2026-06-12).
+        """
         import cv2
 
         x, y, w, h = rect
         H, W = image_bgr.shape[:2]
         x, y = max(0, x), max(0, y)
         w, h = min(w, W - x), min(h, H - y)
-        mask = np.zeros((H, W), np.uint8)
+        full = np.zeros((H, W), bool)
         if w < 5 or h < 5:
-            return mask.astype(bool)
+            return full
+
+        pad_x, pad_y = max(10, w // 4), max(10, h // 4)
+        x0, y0 = max(0, x - pad_x), max(0, y - pad_y)
+        x1, y1 = min(W, x + w + pad_x), min(H, y + h + pad_y)
+        crop = image_bgr[y0:y1, x0:x1]
+        rect_in_crop = (x - x0, y - y0, w, h)
+
+        mask = np.zeros(crop.shape[:2], np.uint8)
         bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
         try:
-            cv2.grabCut(image_bgr, mask, (x, y, w, h), bgd, fgd, 3, cv2.GC_INIT_WITH_RECT)
-            out = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 1, 0)
-            return out.astype(bool)
+            cv2.grabCut(crop, mask, rect_in_crop, bgd, fgd, 3, cv2.GC_INIT_WITH_RECT)
+            out = (mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD)
+            full[y0:y1, x0:x1] = out
         except Exception:
-            box = np.zeros((H, W), bool)
-            box[y:y + h, x:x + w] = True
-            return box
+            full[y:y + h, x:x + w] = True
+        return full

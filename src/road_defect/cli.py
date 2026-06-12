@@ -28,11 +28,16 @@ def main(argv=None) -> int:
     ap.add_argument("--input", required=True, help="файл или папка с изображениями")
     ap.add_argument("--output", default=str(config.OUTPUTS_DIR), help="папка результатов")
     ap.add_argument("--depth", action="store_true", help="включить относительную глубину")
-    ap.add_argument("--road-category", default="IV", help="категория дороги для сроков ГОСТ")
+    ap.add_argument("--road-category", default="IV",
+                    choices=sorted(config.GOST50597_REPAIR_DEADLINE_DAYS),
+                    help="категория дороги для сроков ГОСТ (табл. 5.3)")
     ap.add_argument("--conf", type=float, default=config.DEFAULT_INFERENCE.det_conf)
     ap.add_argument("--blob-ref", action="store_true",
                     help="разрешить эталон по тёмному эллипсу при косом виде "
                          "(экспериментально: риск ложного масштаба, см. STATUS)")
+    ap.add_argument("--ensemble", action="store_true",
+                    help="второй pothole-проход (keremberke) поверх основного "
+                         "детектора: ловит нетипичные ямы ценой x2 времени")
     args = ap.parse_args(argv)
 
     inp = Path(args.input)
@@ -52,7 +57,8 @@ def main(argv=None) -> int:
         return 1
 
     cfg = config.InferenceConfig(det_conf=args.conf,
-                                 allow_blob_reference=args.blob_ref)
+                                 allow_blob_reference=args.blob_ref,
+                                 ensemble_pothole=args.ensemble)
     pipe = DefectPipeline(cfg=cfg, use_depth=args.depth, road_category=args.road_category)
 
     print(f"Обработка {len(images)} изображений -> {out}")

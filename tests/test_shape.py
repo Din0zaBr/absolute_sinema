@@ -37,6 +37,29 @@ def test_ellipse_eccentricity():
     assert sd.major_axis_px > sd.minor_axis_px
 
 
+def test_strip_length_is_physical_not_inertia_axis():
+    # Регрессия (ревью 2026-06-12): ось эллипса инерции для полосы = 2L/√3 ≈
+    # 1.155·L — завышение на 15.5% ложно переключало ногу ГОСТ «длина ≥ 15 см».
+    mask = np.zeros((100, 400), bool)
+    mask[50:53, 75:325] = True  # полоса 3 x 250 px
+    sd = describe_mask(mask)
+    assert math.isclose(sd.length_px, 250, rel_tol=0.01)
+    assert math.isclose(sd.width_px, 3, abs_tol=1.0)
+    # дескриптор формы (ось инерции) остаётся отдельным полем
+    assert sd.major_axis_px > sd.length_px * 1.1
+
+
+def test_fragmented_mask_area_counts_all_components():
+    # Площадь — по всей маске (== mask_rle), а не по крупнейшей компоненте.
+    mask = np.zeros((100, 200), bool)
+    mask[10:20, 10:60] = True    # 500 px
+    mask[60:70, 120:150] = True  # 300 px
+    sd = describe_mask(mask)
+    assert sd.area_px2 == 800
+    # протяжённость — по всей маске (диагональ между фрагментами)
+    assert sd.length_px > 100
+
+
 def test_empty_mask_returns_none():
     assert describe_mask(np.zeros((50, 50), bool)) is None
 

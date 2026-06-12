@@ -19,9 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def check_report(path: Path) -> list[str]:
+def check_report(path: Path, rep: dict) -> list[str]:
     errors: list[str] = []
-    rep = json.loads(path.read_text(encoding="utf-8"))
 
     def err(msg: str) -> None:
         errors.append(f"{path.name}: {msg}")
@@ -86,8 +85,9 @@ def main() -> int:
     n_defects = 0
     for p in reports:
         try:
-            all_errors.extend(check_report(p))
-            n_defects += len(json.loads(p.read_text(encoding="utf-8"))["defects"])
+            rep = json.loads(p.read_text(encoding="utf-8"))
+            all_errors.extend(check_report(p, rep))
+            n_defects += len(rep["defects"])
         except Exception as e:  # noqa: BLE001
             all_errors.append(f"{p.name}: не разобрался ({e})")
     print(f"Проверено отчётов: {len(reports)}, дефектов: {n_defects}")

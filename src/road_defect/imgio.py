@@ -29,7 +29,10 @@ def write_image(path: str | Path, image: np.ndarray) -> bool:
     import cv2
 
     path = Path(path)
-    ok, buf = cv2.imencode(path.suffix if path.suffix else ".jpg", image)
+    try:
+        ok, buf = cv2.imencode(path.suffix if path.suffix else ".jpg", image)
+    except Exception:  # cv2.error на неподдерживаемом расширении — тоже False
+        return False
     if not ok:
         return False
     try:

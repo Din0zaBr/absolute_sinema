@@ -52,9 +52,11 @@ def classify(
                 non_conforming="yes",
                 repair_deadline_days=deadline,
                 hazard_signing_required=True,
-                note=(f"Несоответствие норме (длина/глубина/площадь превышены). "
-                      f"Срок устранения для кат. {road_category}: {deadline} сут; "
-                      f"обозначить/оградить в течение {config.GOST50597_HAZARD_SIGNING_HOURS} ч."),
+                note=("Несоответствие норме (длина/глубина/площадь превышены). "
+                      + (f"Срок устранения для кат. {road_category}: {deadline} сут; "
+                         if deadline is not None else
+                         f"категория дороги «{road_category}» неизвестна — срок по табл. 5.3; ")
+                      + f"обозначить/оградить в течение {config.GOST50597_HAZARD_SIGNING_HOURS} ч."),
             )
         return SeverityVerdict(
             standard="ГОСТ Р 50597-2017",

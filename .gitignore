@@ -13,6 +13,8 @@ models/
 outputs/
 outputs_*/
 runs/
+runs_train/
+datasets/
 
 # исходные фото-семплы (большие бинарники с произвольными именами)
 /*.jpg
