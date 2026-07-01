@@ -11,9 +11,46 @@ import numpy as np
 
 from . import config, imgio, scale as scale_mod, shape as shape_mod, severity as severity_mod
 from . import report as report_mod
+from . import fusion as fusion_mod
 from .detect import Detector
 from .segment import Segmenter
 from .depth import RelativeDepth
+
+
+def _reference_label(ref) -> str:
+    """Короткая подпись эталона для overlay (тип + размер + след кросс-проверки)."""
+    if not ref.available:
+        return "ref"
+    short = {"manhole_gost3634_cover": "manhole", "marking": "marking",
+             "curb_gost6665": "curb"}.get(ref.type or "", ref.type or "ref")
+    km = f" {ref.known_mm:.0f}mm" if ref.known_mm else ""
+    return f"{short}{km}{' +xcheck' if ref.cross_checked else ''}"
+
+
+def _select_dominant_pothole(defects: list):
+    """Одна доминирующая яма в кадре (наибольшая уверенность). Возвращает
+    (defect|None, status). Неоднозначность (≥2 ямы в пределах 0.10 уверенности)
+    или отсутствие → None: молчаливое сопоставление разных ям недопустимо."""
+    pots = sorted((d for d in defects if d.get("class") == "pothole"),
+                  key=lambda d: d.get("confidence", 0.0), reverse=True)
+    if not pots:
+        return None, "no_pothole"
+    if len(pots) >= 2 and (pots[0]["confidence"] - pots[1]["confidence"]) < 0.10:
+        return None, "ambiguous_multiple_potholes"
+    return pots[0], "ok"
+
+
+def _view_summary(name: str, rep: dict, defect, status: str) -> dict:
+    m = (defect.get("metric", {}) if defect else {})
+    return {
+        "image": name,
+        "pothole_found": defect is not None,
+        "select_status": status,
+        "scale_available": rep["scale"].get("available", False),
+        "area_cm2": m.get("area_cm2"),
+        "view_tilt_deg": m.get("view_tilt_deg"),
+        "confidence": m.get("confidence"),
+    }
 
 
 class DefectPipeline:
@@ -39,19 +76,29 @@ class DefectPipeline:
         #    (круглая яма/тёмная заплатка не должна стать «люком» масштаба)
         detections = self.detector.detect(img)
 
-        # 2) масштаб по эталону (люк); геометрия для overlay — из того же замера
-        ref = scale_mod.scale_from_manhole(
+        # 2) масштаб по эталону: мульти-эталон (люк/разметка/борт) с кросс-проверкой.
+        #    Геометрия для overlay берётся из того же замера.
+        ref = scale_mod.resolve_scale(
             img, cfg=self.cfg,
-            exclude_boxes=[d.bbox_xywh for d in detections])
+            exclude_boxes=[d.bbox_xywh for d in detections],
+            road_category=self.road_category)
         if not ref.available:
             warnings.append(ref.note or
-                            "Эталон (люк) в кадре не найден — метрические размеры недоступны.")
+                            "Эталон масштаба в кадре не найден — метрические размеры недоступны.")
+        elif "конфликт эталонов" in (ref.note or ""):
+            warnings.append(ref.note)
+        elif ref.cross_checked and ref.agreeing_types:
+            warnings.append("Масштаб подтверждён разнотипным эталоном "
+                            f"({', '.join(ref.agreeing_types)}) — уверенность повышена.")
         mm_per_px = ref.mm_per_px if ref.available else None
         mode = "single_with_reference" if ref.available else "single"
 
         if self.detector.is_fallback:
             warnings.append("Используется COCO-фолбэк детектора (нет весов под дефекты) — "
                             "классы не дорожные; это лишь проверка конвейера.")
+        if getattr(self.detector, "ensemble_failed", False):
+            warnings.append("Запрошен ансамбль (--ensemble), но второй pothole-детектор "
+                            "не загрузился — отработал только основной проход.")
         if not detections:
             warnings.append("Дефекты не обнаружены.")
 
@@ -87,7 +134,10 @@ class DefectPipeline:
                       "depth_cm": None, "depth_bucket": None,
                       "depth_method": None,  # ключи стабильны и без --depth
                       "depth_certifiable": False,
-                      "confidence": None, "error_band_pct": None}
+                      "confidence": None, "error_band_pct": None,
+                      # наклон вида (из эталона) — нужен слиянию двух видов (F1);
+                      # стабильный ключ как depth_*: всегда присутствует
+                      "view_tilt_deg": ref.tilt_deg if ref.available else None}
             length_cm = area_m2 = None
             if mm_per_px is not None:
                 scaled = shape_mod.apply_scale(sd, mm_per_px)
@@ -126,12 +176,83 @@ class DefectPipeline:
             image_name=image_path.name, image_size_px=(W, H), mode=mode,
             reference=ref.to_dict(), defects=defects, warnings=warnings,
         )
-        ref_label = (f"manhole ref (GOST {ref.known_mm:.0f}mm)"
-                     if ref.available and ref.known_mm else "manhole ref")
         overlay = report_mod.draw_overlay(
             img, defects, masks,
             reference_circle=ref.circle_px if ref.available else None,
             reference_ellipse=ref.ellipse_px if ref.available else None,
-            reference_label=ref_label,
+            reference_polylines=ref.polylines_px if ref.available else None,
+            reference_label=_reference_label(ref),
         )
         return report, overlay, masks
+
+    # --- слияние двух видов одной ямы (F1) ---------------------------------
+    def analyze_pair(self, image_path_a: str | Path,
+                     image_path_b: str | Path):
+        """Слить два вида ОДНОЙ ямы («яма впереди» + «яма позади») для более
+        точной оценки размеров. Прогоняет analyze_image на каждом кадре,
+        сопоставляет доминирующую яму и сливает уже посчитанные см (см. fusion.py).
+
+        Возвращает (fused_report, overlay_a, overlay_b, masks_a). Носитель
+        геометрии (image_size_px, mask_rle, scale) — вид A. Глубина в см не
+        выдаётся никогда (два косых кадра ≠ Сценарий C).
+        """
+        rep_a, ov_a, masks_a = self.analyze_image(image_path_a)
+        rep_b, ov_b, _ = self.analyze_image(image_path_b)
+        name_a, name_b = Path(image_path_a).name, Path(image_path_b).name
+
+        da, sa = _select_dominant_pothole(rep_a["defects"])
+        db, sb = _select_dominant_pothole(rep_b["defects"])
+
+        warnings = [f"[вид A] {w}" for w in rep_a["warnings"]]
+        warnings += [f"[вид B] {w}" for w in rep_b["warnings"]]
+
+        defects = [dict(d) for d in rep_a["defects"]]  # геометрию несёт вид A
+        matched = da is not None and db is not None
+        fused = None
+        if matched:
+            vm_a = fusion_mod.ViewMeasurement.from_defect(da, name_a)
+            vm_b = fusion_mod.ViewMeasurement.from_defect(db, name_b)
+            fused = fusion_mod.fuse_pair(vm_a, vm_b, cfg=self.cfg)
+
+        if fused is not None and fused.available:
+            idx = rep_a["defects"].index(da)
+            verdict = severity_mod.classify(
+                length_cm=fused.length_cm, area_m2=fused.area_m2,
+                depth_cm=None, road_category=self.road_category)
+            defects[idx] = {**defects[idx], "metric": fused.to_dict(),
+                            "severity": verdict.to_dict()}
+            mode = "two_view_fused"
+            warnings.append(
+                f"Слияние двух видов ямы: согласие='{fused.cross_view.get('agreement')}', "
+                f"расхождение {fused.cross_view.get('disagreement_pct')}%. {fused.note}")
+        else:
+            mode = "two_view_unmatched"
+            if not matched:
+                reason = "в одном из видов нет уверенной одиночной ямы для сопоставления"
+            elif fused is not None and fused.note:
+                reason = fused.note   # нет масштаба / разные ямы (форма) и т.п.
+            else:
+                reason = "слияние невозможно"
+            warnings.append(f"Слияние двух видов НЕ выполнено: {reason}. "
+                            "Показаны одиночные результаты вида A.")
+
+        fusion_block = {
+            "n_views": 2,
+            "matched": matched,
+            "fused": bool(fused is not None and fused.available),
+            "agreement": (fused.cross_view.get("agreement")
+                          if fused is not None and fused.available else None),
+            "disagreement_pct": (fused.cross_view.get("disagreement_pct")
+                                 if fused is not None and fused.available else None),
+            "per_view": [_view_summary(name_a, rep_a, da, sa),
+                         _view_summary(name_b, rep_b, db, sb)],
+            "note": ("Глубина в см НЕ выдаётся: два косых кадра — это не Сценарий C "
+                     "(SfM с известной базой). Только площадь скорректирована за наклон."),
+        }
+
+        report = report_mod.build_report(
+            image_name=name_a, image_size_px=tuple(rep_a["image_size_px"]),
+            mode=mode, reference=rep_a["scale"], defects=defects,
+            warnings=warnings, fusion=fusion_block,
+        )
+        return report, ov_a, ov_b, masks_a

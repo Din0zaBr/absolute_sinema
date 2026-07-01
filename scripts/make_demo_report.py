@@ -42,6 +42,49 @@ METHOD_RU = {
     "grabcut": "GrabCut (грубый фолбэк)",
 }
 BUCKET_RU = {"shallow": "мелкая", "medium": "средняя", "deep": "глубокая"}
+# Тип эталона масштаба (reference.type) → человекочитаемый стандарт.
+REF_RU = {
+    "manhole_gost3634_cover": "люк (ГОСТ 3634)",
+    "marking": "разметка (ГОСТ Р 51256)",
+    "curb_gost6665": "борт (ГОСТ 6665)",
+}
+
+
+def scale_badge(scale: dict) -> str:
+    """Бейдж эталона по фактическому типу/подтипу, с уверенностью и кросс-проверкой."""
+    if not scale.get("available"):
+        return '<span class="badge neutral">эталон не найден — размеры в пикселях</span>'
+    ref = scale.get("reference", {})
+    name = REF_RU.get(ref.get("type"), ref.get("type") or "эталон")
+    sub = f' / {ref["subtype"]}' if ref.get("subtype") else ""
+    conf = scale.get("confidence") or "?"
+    cls = {"high": "ok", "medium": "ok", "low": "warn"}.get(conf, "neutral")
+    xc = " · ✓ перекрёстно подтверждён" if scale.get("cross_checked") else ""
+    agree = scale.get("agreeing_types") or []
+    xc += f" ({', '.join(agree)})" if agree else ""
+    return (f'<span class="badge {cls}">эталон: {name}{sub}, '
+            f'{ref.get("known_mm", "?")} мм → {scale.get("mm_per_px")} мм/px '
+            f'(±{scale.get("error_band_pct", "?")}%, {conf}){xc}</span>')
+
+
+def fusion_summary(fz: dict) -> str:
+    """Блок слияния двух видов (pair-режим); пусто для одиночных отчётов."""
+    if not fz:
+        return ""
+    if fz.get("fused"):
+        agree = fz.get("agreement", "?")
+        cls = {"agree": "ok", "partial": "warn", "disagree": "bad"}.get(agree, "neutral")
+        head = (f'<span class="badge {cls}">слияние двух видов: {agree} '
+                f'(расхожд. площади {fz.get("disagreement_pct")}%)</span>')
+    else:
+        head = ('<span class="badge neutral">два вида: слияние не выполнено '
+                '(см. предупреждения) — фабрикованных см нет</span>')
+    rows = ""
+    for v in fz.get("per_view", []):
+        rows += (f"<li>{html.escape(str(v.get('image', '?'))[:28])}: яма "
+                 f"{'найдена' if v.get('pothole_found') else 'нет'}, "
+                 f"эталон {'есть' if v.get('scale_available') else 'нет'}</li>")
+    return f'<p>{head}</p><ul class="small">{rows}</ul>'
 
 
 def embed_image(path: Path, max_side: int = 1280, quality: int = 82) -> str | None:
@@ -115,13 +158,8 @@ def defect_rows(defects: list) -> str:
 def image_card(rep: dict, original_uri: str | None, annotated_uri: str | None) -> str:
     name = html.escape(rep.get("image", "?"))
     scale = rep.get("scale", {})
-    if scale.get("available"):
-        ref = scale.get("reference", {})
-        scale_txt = (f'<span class="badge ok">эталон: люк ГОСТ 3634, '
-                     f'{ref.get("known_mm", "?")} мм → {scale.get("mm_per_px")} мм/px '
-                     f'(±{scale.get("error_band_pct", "?")}%)</span>')
-    else:
-        scale_txt = '<span class="badge neutral">эталон не найден — размеры в пикселях</span>'
+    scale_txt = scale_badge(scale)
+    fusion_txt = fusion_summary(rep.get("fusion"))
 
     warnings = "".join(f"<li>{html.escape(w)}</li>" for w in rep.get("warnings", []))
     n = len(rep.get("defects", []))
@@ -143,6 +181,7 @@ def image_card(rep: dict, original_uri: str | None, annotated_uri: str | None) -
   <section class="card">
     <h2>{name} <span class="count">{n} дефект(ов)</span></h2>
     <p>{scale_txt}</p>
+    {fusion_txt}
     <div class="pair">
       {img_tag(original_uri, "Оригинал")}
       {img_tag(annotated_uri, "Результат движка")}
@@ -236,8 +275,12 @@ def build_html(reports: list, generated: str) -> str:
     физически не может знать: глубина в сантиметрах по одному фото невозможна
     (физика монокулярного зрения) — выдаётся только относительная оценка
     «мелкая/средняя/глубокая»; размеры в см появляются только при подтверждённом
-    эталоне масштаба (люк ГОСТ 3634); неподтверждённый эталон отбрасывается,
-    потому что ложный масштаб хуже его отсутствия.
+    эталоне масштаба (люк ГОСТ 3634 — основной; разметка ГОСТ Р 51256 и борт
+    ГОСТ 6665 — опционально, low-confidence, требуют подтверждения). Неподтверждённый
+    или конфликтующий эталон отбрасывается, потому что ложный масштаб хуже его
+    отсутствия. Слияние двух видов одной ямы («впереди» + «позади») уточняет размеры
+    обратно-дисперсионным усреднением и поправкой площади за наклон, но глубину в см
+    по-прежнему не выдаёт — два косых кадра не дают сертифицируемую глубину.
   </div>
   {cards}
 </main>

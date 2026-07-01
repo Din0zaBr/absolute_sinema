@@ -7,12 +7,15 @@ import pytest
 cv2 = pytest.importorskip("cv2")
 
 from road_defect import config
+from road_defect import scale as scale_mod
 from road_defect.scale import (
     ReferenceMeasurement,
     detect_manhole_circle,
     detect_manhole_ellipses,
     homography_from_4_points,
     measure_distance_mm,
+    resolve_scale,
+    scale_from_curb,
     scale_from_manhole,
 )
 
@@ -148,3 +151,161 @@ def test_homography_diagonal():
     H = homography_from_4_points(image, world)
     diag = measure_distance_mm(H, image[0], image[2])
     assert math.isclose(diag, math.hypot(1000, 500), rel_tol=1e-3)
+
+
+# --- Мульти-эталон: resolve_scale + кросс-валидация + борт (F2) -------------
+
+def test_resolve_scale_manhole_only_unchanged():
+    # Регрессия контракта: при единственном эталоне-люке resolve_scale обязан
+    # вернуть тот же масштаб, что и scale_from_manhole (разметки/борта в кадре нет).
+    img = _synthetic_manhole()
+    direct = scale_from_manhole(img)
+    res = resolve_scale(img)
+    assert res.available and direct.available
+    assert math.isclose(res.mm_per_px, direct.mm_per_px, rel_tol=1e-9)
+    assert res.type == direct.type
+    assert res.confidence == direct.confidence
+    assert res.error_band_pct == direct.error_band_pct
+
+
+def _ref(type_, mmpp, conf="medium", err=18.0, subtype=None):
+    return ReferenceMeasurement(
+        available=True, type=type_, subtype=subtype, known_mm=100.0,
+        measured_px=100.0 / mmpp if mmpp else None, mm_per_px=mmpp,
+        confidence=conf, error_band_pct=err)
+
+
+_MARK_ON = config.InferenceConfig(use_marking_reference=True)
+_CURB_MARK_ON = config.InferenceConfig(use_marking_reference=True,
+                                       allow_curb_reference=True)
+
+
+def test_resolve_scale_markings_off_by_default(monkeypatch):
+    # Разметка ВЫКЛЮЧЕНА по умолчанию: даже доступный marking-эталон не берётся.
+    monkeypatch.setattr(scale_mod, "scale_from_manhole",
+                        lambda *a, **k: ReferenceMeasurement(available=False))
+    monkeypatch.setattr(scale_mod, "scale_from_marking",
+                        lambda *a, **k: _ref("marking", 2.2, "low", subtype="line_1_1"))
+    res = resolve_scale(np.full((400, 400, 3), 120, np.uint8), road_category="IV")
+    assert res.available is False        # markings off → нет эталона
+    assert res.type != "marking"
+
+
+def test_resolve_scale_crossvalidation_promotes(monkeypatch):
+    # Независимое согласие эталонов РАВНОЙ силы (low люк + low разметка, близкий
+    # mm/px) → подтверждение и +1 ступень уверенности (low→medium).
+    monkeypatch.setattr(scale_mod, "scale_from_manhole",
+                        lambda *a, **k: _ref("manhole_gost3634_cover", 2.0, "low"))
+    monkeypatch.setattr(scale_mod, "scale_from_marking",
+                        lambda *a, **k: _ref("marking", 2.2, "low", subtype="line_1_1"))
+    res = resolve_scale(np.full((400, 400, 3), 120, np.uint8),
+                        cfg=_MARK_ON, road_category="IV")
+    assert res.type == "manhole_gost3634_cover"   # база — люк (приоритет типа)
+    assert res.mm_per_px == 2.0                    # база НЕ усредняется
+    assert res.cross_checked is True
+    assert res.confidence == "medium"              # low + согласие → +1
+    assert "marking" in res.agreeing_types
+
+
+def test_resolve_scale_weak_witness_does_not_promote_to_high(monkeypatch):
+    # Слабый (low) класс-неоднозначный эталон-разметка НЕ должен делать
+    # medium-люк «high» — он лишь подтверждает присутствие (ревью 2026-06-20).
+    monkeypatch.setattr(scale_mod, "scale_from_manhole",
+                        lambda *a, **k: _ref("manhole_gost3634_cover", 2.0, "medium", err=18.0))
+    monkeypatch.setattr(scale_mod, "scale_from_marking",
+                        lambda *a, **k: _ref("marking", 2.1, "low", subtype="line_1_1"))
+    res = resolve_scale(np.full((400, 400, 3), 120, np.uint8),
+                        cfg=_MARK_ON, road_category="IV")
+    assert res.confidence == "medium"     # НЕ повышен до high слабым свидетелем
+    assert res.cross_checked is True      # но согласие зафиксировано
+    assert res.error_band_pct >= 18.0     # и полоса НЕ сужена под слабого свидетеля
+    assert "marking" in res.agreeing_types
+
+
+def test_resolve_scale_conflict_demotes_and_warns(monkeypatch):
+    # Расхождение эталонов ~55% → понижение до low, без усреднения, с пометкой.
+    monkeypatch.setattr(scale_mod, "scale_from_manhole",
+                        lambda *a, **k: _ref("manhole_gost3634_cover", 2.0, "medium"))
+    monkeypatch.setattr(scale_mod, "scale_from_marking",
+                        lambda *a, **k: _ref("marking", 3.5, "low", subtype="line_1_1"))
+    res = resolve_scale(np.full((400, 400, 3), 120, np.uint8),
+                        cfg=_MARK_ON, road_category="IV")
+    assert res.mm_per_px == 2.0                    # масштаб люка, НЕ среднее
+    assert res.cross_checked is False
+    assert res.confidence == "low"
+    assert "конфликт эталонов" in res.note
+
+
+def test_cross_validate_conflict_is_sticky_curb_cannot_resurrect(monkeypatch):
+    # Конфликт ДОМИНИРУЕТ: разметка конфликтует с люком → low; борт, даже
+    # согласный, НЕ воскрешает уверенность (порядок эталонов не важен).
+    monkeypatch.setattr(scale_mod, "scale_from_manhole",
+                        lambda *a, **k: _ref("manhole_gost3634_cover", 2.0, "medium"))
+    monkeypatch.setattr(scale_mod, "scale_from_marking",
+                        lambda *a, **k: _ref("marking", 3.5, "low", subtype="line_1_1"))
+    monkeypatch.setattr(scale_mod, "scale_from_curb",
+                        lambda *a, **k: _ref("curb_gost6665", 2.05, "low"))
+    res = resolve_scale(np.full((400, 400, 3), 120, np.uint8),
+                        cfg=_CURB_MARK_ON, road_category="IV")
+    assert res.confidence == "low"        # конфликт «липкий», борт не повышает
+    assert res.cross_checked is False
+
+
+def test_cross_validate_curb_confirms_but_never_promotes(monkeypatch):
+    # Борт согласен с люком → cross_checked=True, но уверенность/полоса НЕ растут
+    # (борт систематически смещён — только подтверждает присутствие).
+    monkeypatch.setattr(scale_mod, "scale_from_manhole",
+                        lambda *a, **k: _ref("manhole_gost3634_cover", 2.0, "low", err=30.0))
+    monkeypatch.setattr(scale_mod, "scale_from_curb",
+                        lambda *a, **k: _ref("curb_gost6665", 2.05, "low", err=30.0))
+    res = resolve_scale(np.full((400, 400, 3), 120, np.uint8),
+                        cfg=config.InferenceConfig(allow_curb_reference=True))
+    assert res.confidence == "low"        # борт не повышает уверенность
+    assert res.error_band_pct >= 30.0     # и не сужает полосу
+    assert res.cross_checked is True
+    assert "curb_gost6665" in res.agreeing_types
+
+
+def test_curb_disabled_by_default():
+    # Две тёмные параллельные линии (имитация борта): без флага борт не считается.
+    img = np.full((800, 1200, 3), 130, np.uint8)
+    cv2.line(img, (200, 400), (1000, 400), (40, 40, 40), 3)
+    cv2.line(img, (200, 470), (1000, 470), (40, 40, 40), 3)
+    res = resolve_scale(img)
+    assert res.type != "curb_gost6665"
+
+
+def test_curb_single_line_rejected():
+    # Одна тёмная линия НЕ становится эталоном даже при включённом борте
+    # (защита от ложного эталона «тень под бордюром», PROJECT.md §4.4 п.5).
+    img = np.full((800, 1200, 3), 130, np.uint8)
+    cv2.line(img, (200, 430), (1000, 430), (40, 40, 40), 3)
+    cfg = config.InferenceConfig(allow_curb_reference=True)
+    assert scale_from_curb(img, cfg=cfg).available is False
+
+
+def test_curb_gap_is_true_separation_not_sign_flipped():
+    # Регрессия знака на склейке 0/180°: две параллельные кромки в ~100 px
+    # должны дать gap ≈ 100 px (а не ~14× из-за переворота знака cos).
+    img = np.full((800, 1200, 3), 130, np.uint8)
+    cv2.line(img, (100, 350), (1100, 350), (40, 40, 40), 3)
+    cv2.line(img, (100, 450), (1100, 450), (40, 40, 40), 3)
+    cfg = config.InferenceConfig(allow_curb_reference=True)
+    ref = scale_from_curb(img, cfg=cfg)
+    assert ref.available
+    assert ref.type == "curb_gost6665"
+    assert abs(ref.measured_px - 100) < 40      # истинное расстояние, не фантом
+    assert 0.5 < ref.mm_per_px < 5.0
+
+
+def test_scale_to_dict_additive_keys():
+    d = ReferenceMeasurement(available=False).to_dict()
+    # старый контракт §8 сохранён (подмножество)...
+    assert {"available", "mm_per_px", "reference",
+            "homography_applied", "error_band_pct"} <= set(d)
+    assert {"type", "known_mm", "measured_px"} <= set(d["reference"])
+    # ...плюс аддитивные поля мульти-эталона
+    assert "subtype" in d["reference"]
+    assert {"cross_checked", "agreeing_types", "candidates_n"} <= set(d)
+    # геометрия overlay по-прежнему не утекает в JSON
+    assert "circle_px" not in d and "ellipse_px" not in d and "polylines_px" not in d

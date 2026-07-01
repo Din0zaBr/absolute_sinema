@@ -85,7 +85,9 @@ class Detector:
         self.cfg = cfg
         self._model = None
         self._pothole_model = None      # второй проход (ансамбль)
+        self._tried_second_pass = False
         self.ensemble_active = False
+        self.ensemble_failed = False    # запрошен, но не поднялся (для warnings)
         self.active: config.ModelCandidate | None = None
         self.is_fallback = False
         self._candidates = candidates or config.DETECTOR_CANDIDATES
@@ -109,23 +111,31 @@ class Detector:
         raise RuntimeError(f"Не удалось загрузить ни один детектор. Последняя ошибка: {last_err}")
 
     def _load_pothole_second_pass(self) -> None:
-        """Лениво поднять второй pothole-детектор для ансамбля."""
-        if self._pothole_model is not None or not self.cfg.ensemble_pothole:
+        """Лениво поднять второй pothole-детектор для ансамбля.
+
+        Если запрошенный ансамбль поднять не удалось — это НЕ молчаливый
+        случай: self.ensemble_failed читается конвейером и попадает в warnings
+        отчёта (пользователь явно просил два прохода).
+        """
+        if self._tried_second_pass or not self.cfg.ensemble_pothole:
             return
+        self._tried_second_pass = True
         if self.active and self.active.name == "keremberke-yolov8m-pothole-seg":
-            return  # основной уже keremberke — второй проход бессмыслен
+            return  # основной уже keremberke — второй проход избыточен, не отказ
         from ultralytics import YOLO
 
         cand = next((c for c in config.DETECTOR_CANDIDATES
                      if c.name == "keremberke-yolov8m-pothole-seg"), None)
         weights = _acquire_weights(cand) if cand else None
         if weights is None:
+            self.ensemble_failed = True
             return
         try:
             self._pothole_model = YOLO(weights)
             self.ensemble_active = True
         except Exception:
             self._pothole_model = None
+            self.ensemble_failed = True
 
     def detect(self, image_bgr: np.ndarray) -> list[Detection]:
         if self._model is None:

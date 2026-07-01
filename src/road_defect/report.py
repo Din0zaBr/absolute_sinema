@@ -40,8 +40,9 @@ def mask_to_rle(mask: np.ndarray) -> dict:
 
 def build_report(image_name: str, image_size_px, mode: str,
                  reference: dict, defects: list, warnings: list,
-                 location: dict | None = None) -> dict:
-    return {
+                 location: dict | None = None,
+                 fusion: dict | None = None) -> dict:
+    report = {
         "image": image_name,
         "mode": mode,
         "image_size_px": list(image_size_px),
@@ -51,6 +52,10 @@ def build_report(image_name: str, image_size_px, mode: str,
         "warnings": warnings,
         "engine_version": __import__("road_defect").__version__,
     }
+    # Блок слияния двух видов (только pair-режим; в одиночных отчётах отсутствует).
+    if fusion is not None:
+        report["fusion"] = fusion
+    return report
 
 
 def save_report(report: dict, out_dir: Path, stem: str) -> Path:
@@ -77,8 +82,11 @@ def unique_stem(stem: str, used: set) -> str:
 
 def draw_overlay(image_bgr: np.ndarray, defects: list, masks: list,
                  reference_circle=None, reference_ellipse=None,
-                 reference_label: str = "manhole ref") -> np.ndarray:
-    """Нарисовать маски, боксы и подписи. masks параллелен defects."""
+                 reference_label: str = "manhole ref",
+                 reference_polylines=None) -> np.ndarray:
+    """Нарисовать маски, боксы и подписи. masks параллелен defects.
+
+    reference_polylines — линии эталона-разметки/борта (Nx2 px) для overlay."""
     import cv2
 
     vis = image_bgr.copy()
@@ -114,6 +122,12 @@ def draw_overlay(image_bgr: np.ndarray, defects: list, masks: list,
         cx, cy, r = reference_circle
         cv2.circle(vis, (cx, cy), r, (255, 0, 0), 3)
         _label(vis, reference_label, cx - r, cy - r, (255, 0, 0))
+    elif reference_polylines:
+        for poly in reference_polylines:
+            pts = np.asarray(poly, dtype=np.int32).reshape(-1, 1, 2)
+            cv2.polylines(vis, [pts], False, (255, 0, 0), 3)
+        first = np.asarray(reference_polylines[0], dtype=np.int32).reshape(-1, 2)
+        _label(vis, reference_label, int(first[0][0]), int(first[0][1]), (255, 0, 0))
     return vis
 
 

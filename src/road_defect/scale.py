@@ -25,7 +25,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -35,7 +35,8 @@ from . import config
 @dataclass
 class ReferenceMeasurement:
     available: bool
-    type: str | None = None            # 'manhole_gost3634_cover' | 'marking' | None
+    # 'manhole_gost3634_cover' | 'marking' | 'curb_gost6665' | None
+    type: str | None = None
     known_mm: float | None = None
     measured_px: float | None = None
     mm_per_px: float | None = None
@@ -45,17 +46,26 @@ class ReferenceMeasurement:
     error_band_pct: float | None = None
     homography: list | None = None     # 3x3 px->mm, если построена
     note: str = ""
+    # Мульти-эталон (F2): подтип якоря и след кросс-валидации.
+    subtype: str | None = None         # 'manhole_cover' | 'stop_line' | 'line_1_1' | ...
+    cross_checked: bool = False        # масштаб подтверждён вторым РАЗНОТИПНЫМ эталоном
+    agreeing_types: list = field(default_factory=list)  # типы согласившихся эталонов
+    candidates_n: int = 1              # сколько эталонов-кандидатов было доступно
     # Геометрия для overlay (в JSON-отчёт не сериализуется):
     circle_px: tuple | None = None     # (cx, cy, r) из Hough
     ellipse_px: tuple | None = None    # ((cx,cy),(MA,ma),angle) уточнённый контур
+    # Полилинии эталонов разметки/борта для overlay (не сериализуются):
+    polylines_px: list | None = None   # [np.ndarray Nx2, ...]
 
     def to_dict(self) -> dict:
-        """Блок `scale` JSON-контракта §8 (+ расширения tilt_deg/method/confidence/note)."""
+        """Блок `scale` JSON-контракта §8 (+ расширения tilt/method/confidence/note,
+        + аддитивные subtype/cross_checked/agreeing_types/candidates_n для мульти-эталона)."""
         return {
             "available": self.available,
             "mm_per_px": self.mm_per_px,
             "reference": {
                 "type": self.type,
+                "subtype": self.subtype,
                 "known_mm": self.known_mm,
                 "measured_px": self.measured_px,
             },
@@ -64,6 +74,9 @@ class ReferenceMeasurement:
             "tilt_deg": self.tilt_deg,
             "method": self.method,
             "confidence": self.confidence,
+            "cross_checked": self.cross_checked,
+            "agreeing_types": list(self.agreeing_types),
+            "candidates_n": self.candidates_n,
             "note": self.note,
         }
 
@@ -384,3 +397,491 @@ def measure_distance_mm(H: np.ndarray, p1_px, p2_px) -> float:
     pts = np.array([[p1_px, p2_px]], dtype=np.float32)
     world = cv2.perspectiveTransform(pts, H)[0]
     return float(np.linalg.norm(world[0] - world[1]))
+
+
+# ===========================================================================
+#  Мульти-эталон (F2): разметка + борт + люк → один масштаб с кросс-проверкой
+# ===========================================================================
+#
+#  Тот же принцип, что у люка: ЛОЖНЫЙ эталон хуже отсутствия. Каждый детектор
+#  независимо проходит свои фильтры ДО попадания в кандидаты; кросс-валидация
+#  лишь повышает/понижает уверенность УЖЕ подтверждённого базового эталона и
+#  никогда не воскрешает отбракованного кандидата. При конфликте разнотипных
+#  эталонов масштаб не усредняется молча — он честно помечается ненадёжным.
+
+_CONF_RANK = {"low": 0, "medium": 1, "high": 2}
+_RANK_CONF = {0: "low", 1: "medium", 2: "high"}
+
+
+def _promote_conf(conf: str | None, notches: int = 1) -> str:
+    r = _CONF_RANK.get(conf or "low", 0)
+    return _RANK_CONF[min(2, r + notches)]
+
+
+def _narrowed_band(err_a: float, err_b: float) -> float:
+    """Обратно-дисперсионное сужение полосы двух согласившихся эталонов."""
+    ea, eb = max(abs(err_a), 1e-6), max(abs(err_b), 1e-6)
+    return float(1.0 / np.sqrt(1.0 / (ea * ea) + 1.0 / (eb * eb)))
+
+
+# --- Разметка как эталон (ГОСТ Р 51256) ------------------------------------
+
+def _detect_paint_stripes(image_bgr: np.ndarray,
+                          cfg: config.InferenceConfig = config.DEFAULT_INFERENCE) -> list:
+    """Кандидаты-полосы дорожной разметки (классика, без сетей).
+
+    Белая краска: высокая яркость L и низкая насыщенность S (HLS). Полоса —
+    сильно вытянутая, почти заполняющая свой повёрнутый прямоугольник компонента
+    (это отсекает стрелки/символы/заплатки). Возвращает записи в пикселях
+    ОРИГИНАЛА с профилем перпендикулярной ширины (для проверки тапера/равномерности)
+    и углом оси к горизонтали (для классификации стоп-линия/линия 1.1).
+    """
+    import cv2
+
+    h, w = image_bgr.shape[:2]
+    s = min(1.0, cfg.imgsz / max(h, w))
+    img = image_bgr
+    if s < 1.0:
+        img = cv2.resize(image_bgr,
+                         (max(1, int(round(w * s))), max(1, int(round(h * s)))),
+                         interpolation=cv2.INTER_AREA)
+    gh, gw = img.shape[:2]
+    short = min(gh, gw)
+    hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
+    L = hls[:, :, 1].astype(np.float32)
+    S = hls[:, :, 2].astype(np.float32)
+    # Краска ЯРЧЕ дороги на запас: порог-перцентиль на почти-равномерном асфальте
+    # сел бы на сам уровень дороги и пометил бы половину покрытия как «краску».
+    road_level = float(np.percentile(L, cfg.mark_road_level_pctl))
+    thr = road_level + cfg.mark_l_margin
+    paint = (((L >= thr) & (S <= cfg.mark_s_max)).astype(np.uint8)) * 255
+    paint = cv2.morphologyEx(paint, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    paint = cv2.morphologyEx(paint, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(paint, connectivity=8)
+    stripes = []
+    for lbl in range(1, n):
+        area = int(stats[lbl, cv2.CC_STAT_AREA])
+        if area < 50:
+            continue
+        comp = labels == lbl
+        ys, xs = np.nonzero(comp)
+        pts = np.column_stack([xs, ys]).astype(np.float32)
+        (rcx, rcy), (rw, rh), _ = cv2.minAreaRect(pts)
+        long_side, short_side = max(rw, rh), min(rw, rh)
+        if short_side < 1.0:
+            continue
+        if long_side / short_side < cfg.mark_stripe_min_elongation:
+            continue
+        if long_side < cfg.mark_min_len_frac * short:
+            continue
+        if area / (long_side * short_side + 1e-6) < cfg.mark_fill_min:
+            continue
+
+        # Принципиальная ось через SVD — без возни с конвенцией угла minAreaRect.
+        mean = pts.mean(axis=0)
+        centered = pts - mean
+        _, _, vt = np.linalg.svd(centered, full_matrices=False)
+        axis, perp = vt[0], vt[1]
+        t = centered @ axis
+        u = centered @ perp
+
+        # Положительный признак КРАСКИ (а не блика/полосы засветки/края кадра):
+        # асфальт по ОБЕ стороны штриха должен быть заметно ТЕМНЕЕ его тела.
+        # Без этого любой яркий вытянутый объект становился ложным эталоном
+        # (ревью 2026-06-19). Замеряем L на сдвиге за кромку с обеих сторон.
+        half_w = float((u.max() - u.min()) / 2.0)
+        interior_L = float(L[ys, xs].mean())
+        flank_gap = half_w + max(3.0, 0.6 * half_w)
+        samp_t = np.linspace(float(t.min()) * 0.8, float(t.max()) * 0.8, 9)
+
+        def _flank_L(sign: float):
+            vals = []
+            for tt in samp_t:
+                px = mean + axis * float(tt) + perp * (sign * flank_gap)
+                xi, yi = int(round(float(px[0]))), int(round(float(px[1])))
+                if 0 <= xi < gw and 0 <= yi < gh:
+                    vals.append(float(L[yi, xi]))
+            return float(np.median(vals)) if vals else None
+
+        left_L, right_L = _flank_L(1.0), _flank_L(-1.0)
+        if (left_L is None or right_L is None
+                or left_L > interior_L - cfg.mark_min_flank_contrast
+                or right_L > interior_L - cfg.mark_min_flank_contrast):
+            continue  # нет тёмного асфальта по обе стороны — это не разметка
+
+        K = max(cfg.mark_min_samples + 2, 7)
+        edges = np.linspace(float(t.min()), float(t.max()), K + 1)
+        widths = []
+        for i in range(K):
+            sel = (t >= edges[i]) & (t <= edges[i + 1])
+            if int(sel.sum()) >= 3:
+                widths.append(float(u[sel].max() - u[sel].min()))
+
+        a = abs(float(np.degrees(np.arctan2(axis[1], axis[0]))))
+        angle_to_horiz = min(a, 180.0 - a)
+        p0 = mean + axis * float(t.min())
+        p1 = mean + axis * float(t.max())
+        stripes.append({
+            "center": (float(rcx / s), float(rcy / s)),
+            "length_px": float(long_side / s),
+            "angle_to_horiz_deg": float(angle_to_horiz),
+            "frame_width_px": float(gw / s),
+            "widths_px": [wd / s for wd in widths],
+            "polyline": np.array([[p0[0] / s, p0[1] / s],
+                                  [p1[0] / s, p1[1] / s]], np.float32),
+        })
+    stripes.sort(key=lambda d: d["length_px"], reverse=True)
+    return stripes
+
+
+def _classify_marking(stripe: dict, road_category: str | None,
+                      cfg: config.InferenceConfig = config.DEFAULT_INFERENCE):
+    """(known_mm, subtype) для полосы или (None, …) если неоднозначно.
+
+    ВАЖНО (ревью 2026-06-19): ориентация в кадре НЕ доказывает класс линии —
+    ракурсно «горизонтальной» становится и продольная линия, а ширина класса
+    (1.1 80–150 / краевая 100–200 / СТОП 400 мм) по одному штриху неоднозначна.
+    Поэтому здесь — только грубая гипотеза класса, а итоговый масштаб всё равно
+    выдаётся как low-confidence с широкой полосой (scale_from_marking) и должен
+    подтверждаться люком. Дополнительные отказы здесь убирают самые грубые ошибки:
+      • СТОП-линия пересекает полосу → её протяжённость должна быть заметной долей
+        ширины кадра, иначе это короткий ракурсный продольный штрих → отказ;
+      • категория дороги обязательна (иначе ширина 1.1 неизвестна) → отказ.
+    """
+    if not (road_category and road_category in config.GOST51256_LINE_1_1_BY_CATEGORY):
+        return None, "no_road_category"
+    ang = stripe["angle_to_horiz_deg"]
+    if ang <= 25.0:
+        span_frac = stripe["length_px"] / max(stripe.get("frame_width_px", 1.0), 1.0)
+        if span_frac < cfg.mark_stopline_min_span_frac:
+            return None, "transverse_too_short"  # скорее ракурсная продольная
+        return float(config.GOST51256_STOP_LINE_MM), "stop_line"
+    if ang >= 50.0:
+        return float(config.GOST51256_LINE_1_1_BY_CATEGORY[road_category]), "line_1_1"
+    return None, "diagonal_ambiguous"
+
+
+def scale_from_marking(image_bgr: np.ndarray,
+                       cfg: config.InferenceConfig = config.DEFAULT_INFERENCE,
+                       exclude_boxes=None,
+                       road_category: str | None = None) -> ReferenceMeasurement:
+    """Изотропный масштаб по ширине дорожной разметки (ГОСТ Р 51256).
+
+    Меряется ШИРИНА полосы (короткая сторона), не длина. Уверенность ВСЕГДА low
+    с широкой полосой (см. config.use_marking_reference): класс ширины разметки
+    по одному штриху неоднозначен. Требует положительного признака краски (тёмный
+    асфальт по обе стороны штриха) и честно отказывает (available=False) при
+    неоднозначном классе, непостоянной ширине (трещина/тень) или сильном таперинге.
+    Повышается до medium только при кросс-подтверждении люком (resolve_scale).
+    """
+    stripes = _detect_paint_stripes(image_bgr, cfg)
+    if not stripes:
+        return ReferenceMeasurement(available=False, note="Разметка в кадре не найдена.")
+
+    last_note = "Разметка найдена, но не прошла проверки масштаба."
+    for st in stripes:
+        if _center_in_any_box(st["center"][0], st["center"][1], exclude_boxes):
+            continue
+        widths = st["widths_px"]
+        if len(widths) < cfg.mark_min_samples:
+            last_note = "Разметка: мало замеров ширины — масштаб не выдан."
+            continue
+        warr = np.asarray(widths, dtype=float)
+        mean_w = float(warr.mean())
+        if mean_w <= 0:
+            continue
+        if float(warr.std() / mean_w) > cfg.mark_width_cv_max:
+            last_note = ("Разметка: ширина непостоянна вдоль полосы "
+                         "(трещина/тень?) — масштаб не выдан.")
+            continue
+        if float(warr.max() / max(warr.min(), 1e-6)) > cfg.mark_width_taper_max:
+            last_note = ("Разметка: сильный перспективный таперинг полосы — "
+                         "единый масштаб ненадёжен, не выдан.")
+            continue
+        known_mm, subtype = _classify_marking(st, road_category, cfg)
+        if known_mm is None:
+            last_note = ("Класс/ширина разметки неоднозначны (нет категории дороги, "
+                         "диагональная полоса или короткий поперечный штрих) — "
+                         "масштаб по разметке не выдан.")
+            continue
+        measured_px = float(np.median(warr))
+        if measured_px <= 0:
+            continue
+        # Уверенность ЖЁСТКО 'low' с широкой полосой: класс ширины разметки по
+        # одному штриху неоднозначен (1.1 80–150 / краевая 100–200 / СТОП 400 мм),
+        # ошибка класса до ~2.5–5× не покрывается узкой полосой. Повышение — только
+        # через кросс-подтверждение люком в resolve_scale (_cross_validate).
+        return ReferenceMeasurement(
+            available=True, type="marking", subtype=subtype,
+            known_mm=float(known_mm), measured_px=round(measured_px, 1),
+            mm_per_px=round(known_mm / measured_px, 4), tilt_deg=None,
+            method="paint_stripe_width", confidence="low",
+            error_band_pct=cfg.mark_error_band_pct,
+            polylines_px=[st["polyline"]],
+            note=(f"Масштаб по ширине разметки (гипотеза {subtype}, {known_mm:.0f} мм, "
+                  "ГОСТ Р 51256). ЭКСПЕРИМЕНТАЛЬНО: класс ширины по одному штриху "
+                  "неоднозначен — low-confidence, требует подтверждения люком."),
+        )
+    return ReferenceMeasurement(available=False, note=last_note)
+
+
+# --- Борт (бордюр) как эталон (ГОСТ 6665) — выключен по умолчанию -----------
+
+def scale_from_curb(image_bgr: np.ndarray,
+                    cfg: config.InferenceConfig = config.DEFAULT_INFERENCE,
+                    exclude_boxes=None) -> ReferenceMeasurement:
+    """Экспериментальный масштаб по бортовому камню. ВЫКЛЮЧЕН по умолчанию.
+
+    Честность прежде всего. Тень под бортом — задокументированный ложный эталон
+    (PROJECT.md §4.4, п.5), поэтому ОДНА тёмная линия эталоном НЕ становится:
+    требуются ДВЕ почти-параллельные длинные линии (верхняя грань + основание
+    борта) с осмысленным и устойчивым зазором между ними; зазор трактуется как
+    высота видимой грани борта 150 мм (ГОСТ 6665). Верх борта приподнят над
+    покрытием (~150 мм), поэтому масштаб систематически смещён — уверенность
+    жёстко capped «low», и resolve_scale использует борт ТОЛЬКО как
+    подтверждающий эталон, никогда как единственный источник см.
+
+    Ограничение v1: контроль швов (длина камня 1000 мм) не реализован — борт
+    остаётся cross-check-эталоном, поэтому это допустимо (см. PROJECT.md).
+    """
+    import cv2
+
+    if not cfg.allow_curb_reference:
+        return ReferenceMeasurement(
+            available=False,
+            note="Эталон по борту выключен (включить флагом --curb-ref).")
+
+    h, w = image_bgr.shape[:2]
+    s = min(1.0, cfg.imgsz / max(h, w))
+    img = image_bgr
+    if s < 1.0:
+        img = cv2.resize(image_bgr,
+                         (max(1, int(round(w * s))), max(1, int(round(h * s)))),
+                         interpolation=cv2.INTER_AREA)
+    gh, gw = img.shape[:2]
+    short = min(gh, gw)
+    gray = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    edges = cv2.Canny(gray, 50, 150)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180.0, threshold=80,
+                            minLineLength=int(0.25 * short), maxLineGap=20)
+    if lines is None or len(lines) < 2:
+        return ReferenceMeasurement(
+            available=False,
+            note="Борт: не найдено двух параллельных длинных линий "
+                 "(одна линия/тень эталоном не становится).")
+
+    # Сегменты: угол (0..180) и средняя точка. Знаковый перпендикулярный сдвиг
+    # считаем ПОСЛЕ кластеризации в ЕДИНОЙ нормали кластера — если считать его
+    # в собственном угле каждого сегмента, на склейке 0/180° знак cos
+    # переворачивается и зазор фабрикуется (×14 ошибка, ревью 2026-06-19).
+    segs = []
+    for x1, y1, x2, y2 in lines[:, 0, :]:
+        ang = float(np.degrees(np.arctan2(float(y2 - y1), float(x2 - x1))) % 180.0)
+        length = float(np.hypot(x2 - x1, y2 - y1))
+        segs.append((ang, (x1 + x2) / 2.0, (y1 + y2) / 2.0, length))
+
+    # Доминирующее направление: самый длинный сегмент задаёт угол кластера.
+    segs.sort(key=lambda t: t[3], reverse=True)
+    base_ang = segs[0][0]
+    cluster = [sg for sg in segs
+               if min(abs(sg[0] - base_ang), 180.0 - abs(sg[0] - base_ang)) <= 10.0]
+    if len(cluster) < 2:
+        return ReferenceMeasurement(
+            available=False,
+            note="Борт: вторая параллельная линия не найдена — эталон не выдан.")
+
+    # Единая нормаль кластера → знак сдвига консистентен на всех сегментах.
+    base_rad = np.radians(base_ang)
+    nx, ny = -np.sin(base_rad), np.cos(base_rad)
+    offsets = sorted((mx * nx + my * ny) for _, mx, my, _ in cluster)
+    # Слить близкие сдвиги (две Canny-кромки ОДНОЙ линии) в группы-кромки, чтобы
+    # «зазор» не считался как полный размах по нескольким линиям (ревью 2026-06-20).
+    merge_tol = 0.01 * short
+    groups = [[offsets[0]]]
+    for off in offsets[1:]:
+        if off - groups[-1][-1] <= merge_tol:
+            groups[-1].append(off)
+        else:
+            groups.append([off])
+    centers = [sum(g) / len(g) for g in groups]
+    if len(centers) < 2:
+        # Кромки практически совпадают — это одна линия (две её кромки), не борт.
+        return ReferenceMeasurement(
+            available=False,
+            note="Борт: параллельные кромки слишком близки (одна линия) — "
+                 "эталон не выдан.")
+    if len(centers) > 2:
+        # Верх борта + основание + лоток/шов/тень: какой зазор есть грань 150 мм —
+        # неоднозначно. Честнее отказать, чем взять произвольную пару.
+        return ReferenceMeasurement(
+            available=False,
+            note="Борт: >2 параллельных линий — неоднозначно (лоток/шов/тень?) — "
+                 "эталон не выдан.")
+    gap_px = (centers[1] - centers[0]) / s   # в координатах оригинала
+    min_gap = 0.03 * (short / s)
+    max_gap = 0.6 * (short / s)
+    if gap_px < min_gap:
+        return ReferenceMeasurement(
+            available=False,
+            note="Борт: параллельные кромки слишком близки (одна линия) — "
+                 "эталон не выдан.")
+    if gap_px > max_gap:
+        return ReferenceMeasurement(
+            available=False,
+            note="Борт: неправдоподобно большой зазор между кромками — отклонён.")
+
+    center = (gw / (2.0 * s), gh / (2.0 * s))
+    if _center_in_any_box(center[0], center[1], exclude_boxes):
+        return ReferenceMeasurement(
+            available=False, note="Борт: кандидат внутри bbox дефекта — отклонён.")
+
+    known_mm = float(config.GOST6665_CURB_FACE_HEIGHT_MM)
+    return ReferenceMeasurement(
+        available=True, type="curb_gost6665", subtype="curb_face",
+        known_mm=known_mm, measured_px=round(gap_px, 1),
+        mm_per_px=round(known_mm / gap_px, 4), tilt_deg=None,
+        method="parallel_curb_edges", confidence="low", error_band_pct=30.0,
+        note=("Масштаб по высоте грани борта 150 мм (ГОСТ 6665) — "
+              "ВЕРХ БОРТА ПРИПОДНЯТ над покрытием, масштаб смещён; "
+              "используется только как подтверждающий эталон."),
+    )
+
+
+# --- Выбор и кросс-валидация эталонов --------------------------------------
+
+def _rank_candidates(cands: list) -> list:
+    """Доступные базовые эталоны по убыванию пригодности.
+
+    Борт исключён из базовых (только cross-check). Сортировка: уверенность ↓,
+    полоса ошибки ↑, приоритет типа ↓ (тай-брейк).
+    """
+    avail = [c for c in cands
+             if c.available and c.type != "curb_gost6665" and c.mm_per_px]
+
+    def key(c):
+        return (_CONF_RANK.get(c.confidence or "low", 0),
+                -(c.error_band_pct if c.error_band_pct is not None else 999.0),
+                config.REFERENCE_TYPE_PRIOR.get(c.type, 0))
+
+    return sorted(avail, key=key, reverse=True)
+
+
+def _cross_validate(base: ReferenceMeasurement, others: list,
+                    cfg: config.InferenceConfig) -> ReferenceMeasurement:
+    """Подтвердить/опровергнуть базовый масштаб разнотипными эталонами.
+
+    Согласие (mm/px в пределах допуска) → +ступень уверенности и сужение полосы.
+    Конфликт (расхождение больше порога) → понижение до low, расширение полосы и
+    предупреждение в note (маркер «конфликт эталонов» — конвейер выносит в
+    warnings). Борт может только ПОДТВЕРЖДАТЬ (свой допуск), но не опровергать.
+    Работает на копии — кандидаты не мутируются.
+    """
+    import dataclasses
+
+    result = dataclasses.replace(base, agreeing_types=list(base.agreeing_types))
+    if result.mm_per_px is None:
+        return result
+
+    def _agree(a: float, b: float) -> float:
+        # Симметрично: вердикт не зависит от того, кто выбран базой.
+        return abs(a - b) / max((a + b) / 2.0, 1e-9)
+
+    candidates = [o for o in others
+                  if o.available and o.mm_per_px is not None and o.type != result.type]
+
+    # 1) Конфликт ДОМИНИРУЕТ и «липкий»: если хоть один РАЗНОТИПНЫЙ не-бортовой
+    #    эталон расходится сильнее порога — масштаб ненадёжен, и ни последующее
+    #    согласие, ни борт не «воскрешают» уверенность (ревью 2026-06-19).
+    conflicts = [o for o in candidates if o.type != "curb_gost6665"
+                 and _agree(result.mm_per_px, o.mm_per_px) >= cfg.xcheck_conflict]
+    if conflicts:
+        worst = max(conflicts, key=lambda o: _agree(result.mm_per_px, o.mm_per_px))
+        ag = _agree(result.mm_per_px, worst.mm_per_px)
+        result.confidence = "low"
+        result.cross_checked = False
+        result.error_band_pct = round(max(
+            result.error_band_pct or 0.0, worst.error_band_pct or 0.0, ag * 100.0), 1)
+        result.note = (
+            result.note + " " +
+            f"конфликт эталонов: {result.type} mm/px {result.mm_per_px} vs "
+            f"{worst.type} {worst.mm_per_px} (расхождение {ag * 100:.0f}%) — "
+            "масштаб ненадёжен").strip()
+        return result
+
+    # 2) Нет конфликтов → подтверждение разнотипными эталонами. ПОВЫШАТЬ уверенность
+    #    и СУЖАТЬ полосу вправе лишь НЕЗАВИСИМЫЙ эталон НЕ СЛАБЕЕ базового: слабый
+    #    (low) класс-неоднозначный эталон-разметка не должен делать люк «high»
+    #    (ревью 2026-06-20). Борт — НИКОГДА (систематически смещён): только
+    #    подтверждает присутствие (cross_checked). Повышение — не более одной ступени.
+    base_rank = _CONF_RANK.get(result.confidence or "low", 0)
+    agreeing_strong = []
+    for o in candidates:
+        is_curb = o.type == "curb_gost6665"
+        tol = cfg.curb_crosscheck_tol if is_curb else cfg.xcheck_tol
+        if _agree(result.mm_per_px, o.mm_per_px) <= tol:
+            if o.type not in result.agreeing_types:
+                result.agreeing_types.append(o.type)
+            result.cross_checked = True
+            if (not is_curb) and _CONF_RANK.get(o.confidence or "low", 0) >= base_rank:
+                agreeing_strong.append(o)
+    if agreeing_strong:
+        result.confidence = _promote_conf(result.confidence)  # одна ступень
+        best = min(agreeing_strong,
+                   key=lambda o: o.error_band_pct if o.error_band_pct is not None else 30.0)
+        result.error_band_pct = round(_narrowed_band(
+            result.error_band_pct if result.error_band_pct is not None else 30.0,
+            best.error_band_pct if best.error_band_pct is not None else 30.0), 1)
+    return result
+
+
+def resolve_scale(image_bgr: np.ndarray,
+                  cfg: config.InferenceConfig = config.DEFAULT_INFERENCE,
+                  exclude_boxes=None,
+                  road_category: str | None = None) -> ReferenceMeasurement:
+    """Единая точка масштаба (F2): собрать все доступные эталоны, выбрать базовый
+    и кросс-валидировать. Заменяет прямой вызов scale_from_manhole в конвейере.
+
+    Намеренно вызывает scale_from_manhole по имени модуля — это сохраняет
+    monkeypatch honest-mode тестов (они патчат scale_from_manhole на модуле).
+    Возвращает ОДИН ReferenceMeasurement: конвейер потребляет один mm_per_px,
+    как и раньше. Если базового эталона нет (борт в одиночку не считается) —
+    available=False с самой информативной заметкой об отказе.
+    """
+    cands: list = []
+    notes: list = []
+
+    base_manhole = scale_from_manhole(image_bgr, cfg=cfg, exclude_boxes=exclude_boxes)
+    if base_manhole.available:
+        cands.append(base_manhole)
+    elif base_manhole.note:
+        notes.append(base_manhole.note)
+
+    if cfg.use_marking_reference:
+        m = scale_from_marking(image_bgr, cfg=cfg, exclude_boxes=exclude_boxes,
+                               road_category=road_category)
+        if m.available:
+            cands.append(m)
+        elif m.note:
+            notes.append(m.note)
+
+    curb_candidates: list = []
+    if cfg.allow_curb_reference:
+        c = scale_from_curb(image_bgr, cfg=cfg, exclude_boxes=exclude_boxes)
+        if c.available:
+            curb_candidates.append(c)
+        elif c.note:
+            notes.append(c.note)
+
+    n_available = len(cands) + len(curb_candidates)
+    base_eligible = _rank_candidates(cands)
+    if not base_eligible:
+        return ReferenceMeasurement(
+            available=False, candidates_n=n_available,
+            note=" ".join(n for n in notes if n) or "Эталон масштаба не найден.")
+
+    base = base_eligible[0]
+    others = [c for c in cands if c is not base] + curb_candidates
+    result = _cross_validate(base, others, cfg)
+    result.candidates_n = n_available
+    return result
