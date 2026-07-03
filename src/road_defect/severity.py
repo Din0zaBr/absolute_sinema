@@ -18,6 +18,7 @@ class SeverityVerdict:
     area_exceeds: bool | None        # площадь ≥ 0.06 м²
     depth_exceeds: bool | None       # глубина ≥ 5 см (None = не измерена)
     non_conforming: str              # "yes" | "no" | "indeterminate_without_depth"
+                                     #               | "indeterminate_without_scale"
     repair_deadline_days: int | None
     hazard_signing_required: bool | None
     note: str
@@ -81,11 +82,13 @@ def classify(
                   + ("; ".join(partial) if partial else "размеры не измерены (нет эталона).")),
         )
 
-    # Размеры не измерены (нет эталона), но глубина есть — редкий случай.
+    # Размеры не измерены (нет эталона), но глубина есть — через конвейер
+    # недостижимо (см-глубина не выдаётся), но статус обязан быть семантически
+    # честным: не хватает МАСШТАБА, глубина как раз есть (ревью 2026-07-02).
     return SeverityVerdict(
         standard="ГОСТ Р 50597-2017",
         length_exceeds=length_exc, area_exceeds=area_exc, depth_exceeds=depth_exc,
-        non_conforming="indeterminate_without_depth",
+        non_conforming="indeterminate_without_scale",
         repair_deadline_days=None, hazard_signing_required=None,
         note="Недостаточно измерений для полного вердикта (нет эталона масштаба).",
     )

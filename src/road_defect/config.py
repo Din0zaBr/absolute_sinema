@@ -146,13 +146,11 @@ SEGMENTER_ULTRALYTICS = ModelCandidate(
     note="MobileSAM без пакета mobile_sam; Apache-2.0 веса",
 )
 
-# Относительная глубина (опционально).
-DEPTH_MODEL = ModelCandidate(
-    name="depth-anything-v2-small", source="hf_hub",
-    repo_id="depth-anything/Depth-Anything-V2-Small",
-    filename="depth_anything_v2_vits.pth",
-    note="Apache-2.0 (только Small)",
-)
+# Относительная глубина (опционально): depth.py грузит модель через
+# transformers.pipeline по HF-id — ModelCandidate тут был мёртвым кодом
+# (ревью 2026-07-02). Лицензия: Apache-2.0 только у Small (Base/Large —
+# CC-BY-NC, в продукт нельзя, дизайн §9).
+DEPTH_MODEL_HF_ID = "depth-anything/Depth-Anything-V2-Small-hf"
 
 
 # --- Пороги инференса -------------------------------------------------------

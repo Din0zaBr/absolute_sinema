@@ -25,3 +25,11 @@ def test_no_renders_conforming_badge():
 def test_indeterminate_renders_warn_badge():
     out = demo.severity_badge({"non_conforming": "indeterminate_without_depth"})
     assert "не подтверждена" in out and "warn" in out
+
+
+def test_indeterminate_without_scale_names_true_gap():
+    # Ревью 2026-07-02: warn-бейдж обязан называть недостающее честно —
+    # для этого статуса не хватает МАСШТАБА, а не глубины.
+    out = demo.severity_badge({"non_conforming": "indeterminate_without_scale"})
+    assert "эталона масштаба" in out and "warn" in out
+    assert "глубина" not in out

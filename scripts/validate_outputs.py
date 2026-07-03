@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -59,9 +60,19 @@ def check_report(path: Path, rep: dict) -> list[str]:
 
         if not (0.0 <= d.get("confidence", -1) <= 1.0):
             err(f"{tag}: confidence вне [0, 1]")
-        x, y, w, h = d.get("bbox_px", (0, 0, 0, 0))
-        if x < -1 or y < -1 or x + w > W + 1 or y + h > H + 1 or w <= 0 or h <= 0:
-            err(f"{tag}: bbox {d['bbox_px']} вне кадра {W}x{H}")
+        # Битый bbox_px — диагностика, а не KeyError валидатора (ревью
+        # 2026-07-02). bool — подкласс int, NaN — float и проходит любые
+        # сравнения ложью: оба класса битости ловим явно (ревью 2026-07-03).
+        bbox = d.get("bbox_px")
+        if (not isinstance(bbox, (list, tuple)) or len(bbox) != 4
+                or not all(isinstance(v, (int, float))
+                           and not isinstance(v, bool)
+                           and math.isfinite(v) for v in bbox)):
+            err(f"{tag}: bbox_px отсутствует или не 4 конечных числа: {bbox!r}")
+        else:
+            x, y, w, h = bbox
+            if x < -1 or y < -1 or x + w > W + 1 or y + h > H + 1 or w <= 0 or h <= 0:
+                err(f"{tag}: bbox {bbox} вне кадра {W}x{H}")
 
         rle = d.get("mask_rle", {})
         if rle.get("size") != [H, W]:

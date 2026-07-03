@@ -107,13 +107,18 @@ def embed_image(path: Path, max_side: int = 1280, quality: int = 82) -> str | No
 
 
 def severity_badge(sev: dict) -> str:
-    # Контракт severity.py: строки "yes" | "no" | "indeterminate_without_depth"
-    # (ревью 2026-06-12: сравнение с True/False делало бейджи недостижимыми).
+    # Контракт severity.py: "yes" | "no" | "indeterminate_without_depth" |
+    # "indeterminate_without_scale" (ревью 2026-06-12: сравнение с True/False
+    # делало бейджи недостижимыми). Текст warn-бейджа обязан называть
+    # НЕДОСТАЮЩЕЕ измерение честно (ревью 2026-07-02).
     nc = sev.get("non_conforming")
     if nc == "yes":
         return '<span class="badge bad">НЕ соответствует ГОСТ</span>'
     if nc == "no":
         return '<span class="badge ok">соответствует ГОСТ</span>'
+    if nc == "indeterminate_without_scale":
+        return ('<span class="badge warn">нет эталона масштаба — '
+                'размеры не подтверждены</span>')
     return ('<span class="badge warn">глубина не подтверждена — '
             'вердикт ГОСТ требует серийной съёмки</span>')
 

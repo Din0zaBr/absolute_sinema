@@ -229,8 +229,12 @@ class Segmenter:
 
         x, y, w, h = rect
         H, W = image_bgr.shape[:2]
-        x, y = max(0, x), max(0, y)
-        w, h = min(w, W - x), min(h, H - y)
+        # Клип обрезает и w/h: при отрицательном x/y прямоугольник раньше
+        # «уезжал» вправо/вниз на |x|/|y| (ревью 2026-07-02; через конвейер
+        # недостижимо — YOLO клипует боксы, — но фолбэк обязан быть корректным).
+        x0, y0 = max(0, int(x)), max(0, int(y))
+        x1, y1 = min(W, int(x) + int(w)), min(H, int(y) + int(h))
+        x, y, w, h = x0, y0, x1 - x0, y1 - y0
         full = np.zeros((H, W), bool)
         if w < 5 or h < 5:
             return full

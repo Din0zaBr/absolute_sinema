@@ -418,12 +418,6 @@ def _promote_conf(conf: str | None, notches: int = 1) -> str:
     return _RANK_CONF[min(2, r + notches)]
 
 
-def _narrowed_band(err_a: float, err_b: float) -> float:
-    """Обратно-дисперсионное сужение полосы двух согласившихся эталонов."""
-    ea, eb = max(abs(err_a), 1e-6), max(abs(err_b), 1e-6)
-    return float(1.0 / np.sqrt(1.0 / (ea * ea) + 1.0 / (eb * eb)))
-
-
 # --- Разметка как эталон (ГОСТ Р 51256) ------------------------------------
 
 def _detect_paint_stripes(image_bgr: np.ndarray,
@@ -692,19 +686,21 @@ def scale_from_curb(image_bgr: np.ndarray,
             note="Борт: вторая параллельная линия не найдена — эталон не выдан.")
 
     # Единая нормаль кластера → знак сдвига консистентен на всех сегментах.
+    # Средние точки сегментов сохраняются: позиция КАНДИДАТА нужна для
+    # exclude_boxes (ревью 2026-07-02: проверялся центр КАДРА, не кандидата).
     base_rad = np.radians(base_ang)
     nx, ny = -np.sin(base_rad), np.cos(base_rad)
-    offsets = sorted((mx * nx + my * ny) for _, mx, my, _ in cluster)
+    offsets = sorted((mx * nx + my * ny, mx, my) for _, mx, my, _ in cluster)
     # Слить близкие сдвиги (две Canny-кромки ОДНОЙ линии) в группы-кромки, чтобы
     # «зазор» не считался как полный размах по нескольким линиям (ревью 2026-06-20).
     merge_tol = 0.01 * short
     groups = [[offsets[0]]]
     for off in offsets[1:]:
-        if off - groups[-1][-1] <= merge_tol:
+        if off[0] - groups[-1][-1][0] <= merge_tol:
             groups[-1].append(off)
         else:
             groups.append([off])
-    centers = [sum(g) / len(g) for g in groups]
+    centers = [sum(o[0] for o in g) / len(g) for g in groups]
     if len(centers) < 2:
         # Кромки практически совпадают — это одна линия (две её кромки), не борт.
         return ReferenceMeasurement(
@@ -731,8 +727,13 @@ def scale_from_curb(image_bgr: np.ndarray,
             available=False,
             note="Борт: неправдоподобно большой зазор между кромками — отклонён.")
 
-    center = (gw / (2.0 * s), gh / (2.0 * s))
-    if _center_in_any_box(center[0], center[1], exclude_boxes):
+    # Позиция КАНДИДАТА — средняя точка сегментов обеих кромок (в координатах
+    # оригинала), а не центр кадра: круглая яма у края кадра не должна
+    # пропускать борт, а борт в центре — отклоняться из-за ямы в углу.
+    pts = [(mx, my) for g in groups for _, mx, my in g]
+    cand_x = sum(p[0] for p in pts) / len(pts) / s
+    cand_y = sum(p[1] for p in pts) / len(pts) / s
+    if _center_in_any_box(cand_x, cand_y, exclude_boxes):
         return ReferenceMeasurement(
             available=False, note="Борт: кандидат внутри bbox дефекта — отклонён.")
 
@@ -771,7 +772,8 @@ def _cross_validate(base: ReferenceMeasurement, others: list,
                     cfg: config.InferenceConfig) -> ReferenceMeasurement:
     """Подтвердить/опровергнуть базовый масштаб разнотипными эталонами.
 
-    Согласие (mm/px в пределах допуска) → +ступень уверенности и сужение полосы.
+    Согласие (mm/px в пределах допуска) → +ступень уверенности; значение и
+    полоса ошибки остаются базовыми (сужение без слияния значений нечестно).
     Конфликт (расхождение больше порога) → понижение до low, расширение полосы и
     предупреждение в note (маркер «конфликт эталонов» — конвейер выносит в
     warnings). Борт может только ПОДТВЕРЖДАТЬ (свой допуск), но не опровергать.
@@ -810,10 +812,15 @@ def _cross_validate(base: ReferenceMeasurement, others: list,
         return result
 
     # 2) Нет конфликтов → подтверждение разнотипными эталонами. ПОВЫШАТЬ уверенность
-    #    и СУЖАТЬ полосу вправе лишь НЕЗАВИСИМЫЙ эталон НЕ СЛАБЕЕ базового: слабый
-    #    (low) класс-неоднозначный эталон-разметка не должен делать люк «high»
+    #    вправе лишь НЕЗАВИСИМЫЙ эталон НЕ СЛАБЕЕ базового: слабый (low)
+    #    класс-неоднозначный эталон-разметка не должен делать люк «high»
     #    (ревью 2026-06-20). Борт — НИКОГДА (систематически смещён): только
     #    подтверждает присутствие (cross_checked). Повышение — не более одной ступени.
+    #    Полоса ошибки НЕ сужается: mm_per_px остаётся значением БАЗОВОГО эталона
+    #    (усреднение сломало бы связь known_mm/measured_px ↔ mm_per_px в §8),
+    #    а заявлять точность слитой оценки, не выдавая её значение, нечестно
+    #    (ревью 2026-07-02). Выгода согласия идёт в уверенность, не в полосу —
+    #    та же логика, что в fusion.py для двух видов.
     base_rank = _CONF_RANK.get(result.confidence or "low", 0)
     agreeing_strong = []
     for o in candidates:
@@ -827,11 +834,6 @@ def _cross_validate(base: ReferenceMeasurement, others: list,
                 agreeing_strong.append(o)
     if agreeing_strong:
         result.confidence = _promote_conf(result.confidence)  # одна ступень
-        best = min(agreeing_strong,
-                   key=lambda o: o.error_band_pct if o.error_band_pct is not None else 30.0)
-        result.error_band_pct = round(_narrowed_band(
-            result.error_band_pct if result.error_band_pct is not None else 30.0,
-            best.error_band_pct if best.error_band_pct is not None else 30.0), 1)
     return result
 
 

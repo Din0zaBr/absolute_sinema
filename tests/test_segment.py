@@ -176,3 +176,21 @@ def test_linear_class_falls_back_to_sam_on_flat_crop():
     out = seg.segment(FRAME, BBOX, cls_name="transverse_crack")  # FRAME однотонный
     assert np.array_equal(out, m)
     assert seg.last_method == "mobile_sam_ultralytics"
+
+
+def test_grabcut_clips_rect_beyond_frame():
+    # Ревью 2026-07-02: клэмп не уменьшал w/h при отрицательном x/y — рабочая
+    # область «уезжала» вправо/вниз на |x|/|y|. Эффективный rect для
+    # (-20, -10, 40, 30) на кадре 100x100 — это [0:20)x[0:20), не [0:40)x[0:30).
+    img = np.full((100, 100, 3), 128, np.uint8)
+    img[0:20, 0:20] = 30                       # тёмный объект в углу
+    mask = Segmenter._grabcut(img, (-20, -10, 40, 30))
+    assert mask.shape == (100, 100)
+    assert not mask[:, 20:].any()              # не выходит за клип по x
+    assert not mask[20:, :].any()              # и по y
+
+
+def test_grabcut_fully_outside_rect_gives_empty_mask():
+    img = np.full((100, 100, 3), 128, np.uint8)
+    mask = Segmenter._grabcut(img, (-50, -50, 40, 30))   # целиком вне кадра
+    assert not mask.any()

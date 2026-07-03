@@ -266,6 +266,44 @@ def test_cross_validate_curb_confirms_but_never_promotes(monkeypatch):
     assert "curb_gost6665" in res.agreeing_types
 
 
+def test_cross_validate_agreement_keeps_base_band(monkeypatch):
+    # Ревью 2026-07-02: согласие эталонов НЕ сужает полосу — mm_per_px остаётся
+    # базовым (без слияния значений), значит и заявленная точность базовая.
+    # Выгода согласия идёт в уверенность (+1 ступень), как в fusion.py.
+    monkeypatch.setattr(scale_mod, "scale_from_manhole",
+                        lambda *a, **k: _ref("manhole_gost3634_cover", 2.0, "low", err=18.0))
+    monkeypatch.setattr(scale_mod, "scale_from_marking",
+                        lambda *a, **k: _ref("marking", 2.1, "low", err=25.0,
+                                             subtype="line_1_1"))
+    res = resolve_scale(np.full((400, 400, 3), 120, np.uint8),
+                        cfg=_MARK_ON, road_category="IV")
+    assert res.type == "manhole_gost3634_cover"   # база — узкая полоса
+    assert res.mm_per_px == 2.0            # значение базы не менялось...
+    assert res.error_band_pct == 18.0      # ...значит и полоса не сужается
+    # (до фикса: _narrowed_band(18, 25) ≈ 14.6 — точность росла без слияния)
+    assert res.confidence == "medium"      # выгода — в уверенности
+    assert res.cross_checked is True
+
+
+def test_curb_exclude_checks_candidate_position_not_frame_center():
+    # Ревью 2026-07-02: exclude_boxes проверялся по центру КАДРА, а не кандидата.
+    # Борт в ВЕРХНЕЙ части кадра (y≈200), bbox дефекта накрывает борт → отказ;
+    # bbox в центре кадра (y≈400), борта не касается → борт принимается.
+    img = np.full((800, 1200, 3), 130, np.uint8)
+    cv2.line(img, (100, 150), (1100, 150), (40, 40, 40), 3)
+    cv2.line(img, (100, 250), (1100, 250), (40, 40, 40), 3)
+    cfg = config.InferenceConfig(allow_curb_reference=True)
+
+    box_on_curb = [(100.0, 100.0, 1000.0, 200.0)]      # накрывает кромки
+    ref = scale_from_curb(img, cfg=cfg, exclude_boxes=box_on_curb)
+    assert ref.available is False
+    assert "внутри bbox дефекта" in ref.note
+
+    box_frame_center = [(500.0, 350.0, 200.0, 100.0)]  # центр кадра, не борт
+    ref = scale_from_curb(img, cfg=cfg, exclude_boxes=box_frame_center)
+    assert ref.available is True           # раньше ложно отклонялся
+
+
 def test_curb_disabled_by_default():
     # Две тёмные параллельные линии (имитация борта): без флага борт не считается.
     img = np.full((800, 1200, 3), 130, np.uint8)
