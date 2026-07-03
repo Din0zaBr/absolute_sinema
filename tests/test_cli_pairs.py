@@ -53,6 +53,24 @@ def test_discover_pairs_finds_named_front_back_and_reports_bad_folders(tmp_path)
     assert any("broken" in err for err in errors)
 
 
+def test_discover_pairs_canonical_names_beat_aliases(tmp_path):
+    # Лишний кадр 1.jpg/2.jpg рядом с front/back не должен молча подменить пару:
+    # канонические имена главнее коротких алиасов ('1.jpg' < 'back.jpg' < 'front.jpg'
+    # по алфавиту — раньше пара тихо собиралась из 1.jpg/2.jpg).
+    root = tmp_path / "pairs"
+    _touch(root / "001" / "1.jpg")
+    _touch(root / "001" / "2.jpg")
+    _touch(root / "001" / "front.jpg")
+    _touch(root / "001" / "back.jpg")
+
+    pairs, errors = cli._discover_pairs(root)
+
+    assert [(pid, f.name, b.name) for pid, f, b in pairs] == [
+        ("001", "front.jpg", "back.jpg"),
+    ]
+    assert errors == []
+
+
 def test_run_pairs_dir_writes_reports_overlays_and_summary(tmp_path):
     root = tmp_path / "pairs"
     _touch(root / "001" / "front.jpg")

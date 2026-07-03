@@ -65,6 +65,13 @@ class DefectPipeline:
 
     # --- одиночное фото ----------------------------------------------------
     def analyze_image(self, image_path: str | Path) -> tuple[dict, np.ndarray, list]:
+        report, overlay, masks, _, _ = self._analyze(image_path)
+        return report, overlay, masks
+
+    def _analyze(self, image_path: str | Path):
+        """Как analyze_image, но дополнительно возвращает исходный кадр и эталон
+        (img, ref) — они нужны analyze_pair, чтобы перерисовать overlay после
+        слияния (иначе на картинке остались бы до-слиянные сантиметры)."""
         image_path = Path(image_path)
         img = imgio.read_image(image_path)
         if img is None:
@@ -176,14 +183,18 @@ class DefectPipeline:
             image_name=image_path.name, image_size_px=(W, H), mode=mode,
             reference=ref.to_dict(), defects=defects, warnings=warnings,
         )
-        overlay = report_mod.draw_overlay(
+        overlay = self._draw(img, defects, masks, ref)
+        return report, overlay, masks, img, ref
+
+    @staticmethod
+    def _draw(img, defects, masks, ref):
+        return report_mod.draw_overlay(
             img, defects, masks,
             reference_circle=ref.circle_px if ref.available else None,
             reference_ellipse=ref.ellipse_px if ref.available else None,
             reference_polylines=ref.polylines_px if ref.available else None,
             reference_label=_reference_label(ref),
         )
-        return report, overlay, masks
 
     # --- слияние двух видов одной ямы (F1) ---------------------------------
     def analyze_pair(self, image_path_a: str | Path,
@@ -196,8 +207,8 @@ class DefectPipeline:
         геометрии (image_size_px, mask_rle, scale) — вид A. Глубина в см не
         выдаётся никогда (два косых кадра ≠ Сценарий C).
         """
-        rep_a, ov_a, masks_a = self.analyze_image(image_path_a)
-        rep_b, ov_b, _ = self.analyze_image(image_path_b)
+        rep_a, ov_a, masks_a, img_a, ref_a = self._analyze(image_path_a)
+        rep_b, ov_b, _, _, _ = self._analyze(image_path_b)
         name_a, name_b = Path(image_path_a).name, Path(image_path_b).name
 
         da, sa = _select_dominant_pothole(rep_a["defects"])
@@ -221,6 +232,10 @@ class DefectPipeline:
                 depth_cm=None, road_category=self.road_category)
             defects[idx] = {**defects[idx], "metric": fused.to_dict(),
                             "severity": verdict.to_dict()}
+            # Перерисовать overlay вида A с fused-метрикой: числа на картинке
+            # обязаны совпадать с JSON под тем же стемом (до-слиянный размер
+            # уже впечатан в пиксели старого overlay).
+            ov_a = self._draw(img_a, defects, masks_a, ref_a)
             mode = "two_view_fused"
             warnings.append(
                 f"Слияние двух видов ямы: согласие='{fused.cross_view.get('agreement')}', "

@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Дорожные дефекты по фото — ML-обзор для ревью</title>
+<style>
+  :root {
+    --ground: #222428;
+    --ground-2: #1A1C1F;
+    --card: #2A2D31;
+    --card-2: #303338;
+    --text: #E9E7E1;
+    --muted: #9DA1A6;
+    --line: #393C41;
+    --paint: #F4C20D;
+    --paint-dim: rgba(244, 194, 13, 0.14);
+    --ok: #4EA978;
+    --warn: #E2A33A;
+    --no-solid: #D25141;
+    --font-display: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", ui-monospace, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background-color: var(--ground);
+    background-image:
+      radial-gradient(1200px 600px at 80% -10%, rgba(244, 194, 13, 0.05), transparent 60%),
+      radial-gradient(900px 700px at -10% 110%, rgba(255, 255, 255, 0.03), transparent 55%);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 26px; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--paint);
+    margin: 0 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--paint); display: inline-block; }
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(26px, 4vw, 38px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 22px;
+  }
+  h3 { font-weight: 700; font-size: 18px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  p { margin: 0 0 14px; }
+  .mono { font-family: var(--font-mono); }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #F3EEDC;
+    white-space: nowrap;
+  }
+  .lede { color: var(--muted); font-size: 18px; }
+
+  .lane {
+    height: 5px;
+    background: repeating-linear-gradient(90deg, rgba(233, 231, 225, 0.55) 0 46px, transparent 46px 84px);
+    opacity: 0.5;
+  }
+
+  section { padding: 72px 0; border-bottom: 1px solid var(--line); }
+  section:last-of-type { border-bottom: none; }
+
+  /* hero */
+  .hero {
+    padding: 58px 0 74px;
+    background: linear-gradient(180deg, var(--ground-2), var(--ground));
+    border-bottom: 1px solid var(--line);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-dashes {
+    height: 6px;
+    margin-bottom: 40px;
+    background: repeating-linear-gradient(90deg, var(--paint) 0 54px, transparent 54px 98px);
+    opacity: 0.92;
+  }
+  .hero h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(34px, 6.4vw, 64px);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    margin: 0 0 20px;
+    max-width: 16ch;
+  }
+  .hero h1 em { font-style: normal; color: var(--paint); }
+  .hero .lede { max-width: 62ch; margin-bottom: 24px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 46px; }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 999px;
+    padding: 6px 14px;
+    white-space: nowrap;
+  }
+  .chip b { color: var(--paint); font-weight: 700; }
+
+  .triad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .cap {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--state, var(--line));
+    border-radius: 8px;
+    padding: 20px 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .cap .state {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--state);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .cap .state::before {
+    content: "";
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--state);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--state) 22%, transparent);
+  }
+  .cap.ok { --state: var(--ok); }
+  .cap.warn { --state: var(--warn); }
+  .cap.no { --state: var(--no-solid); }
+  .cap strong { font-size: 17px; }
+  .cap span.detail { color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+
+  .principle {
+    background: var(--paint-dim);
+    border: 1px solid color-mix(in srgb, var(--paint) 40%, transparent);
+    border-left: 4px solid var(--paint);
+    border-radius: 8px;
+    padding: 22px 24px;
+    margin: 0 0 24px;
+    font-size: 19px;
+    line-height: 1.5;
+  }
+  .principle b { color: var(--paint); }
+
+  /* pipeline */
+  .pipe {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 6px;
+    font-family: var(--font-mono); font-size: 14px; margin: 4px 0 8px;
+  }
+  .stage { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; color: var(--text); }
+  .stage.key { border-color: color-mix(in srgb, var(--paint) 55%, var(--line)); color: var(--paint); }
+  .arrow { color: var(--muted); padding: 0 2px; }
+  .group { display: inline-flex; align-items: center; gap: 6px; padding: 6px; border: 1px dashed var(--line); border-radius: 8px; }
+  .group .lbl { color: var(--muted); font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase; padding: 0 4px; }
+
+  /* module cards */
+  .grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .mod {
+    background: var(--card); border: 1px solid var(--line);
+    border-left: 3px solid var(--ledge, var(--line)); border-radius: 8px; padding: 16px 18px;
+  }
+  .mod.ml { --ledge: var(--paint); }
+  .mod.aux { --ledge: var(--line); }
+  .mod h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .mod h3 .mfile { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-weight: 400; }
+  .mod h3 .kind { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: #0C0E10; background: var(--paint); padding: 2px 7px; border-radius: 4px; }
+  .mod p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.52; }
+  .mod p b { color: var(--text); font-weight: 600; }
+
+  /* validation */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel { border: 1px solid var(--line); border-radius: 8px; padding: 20px 22px; background: var(--card); }
+  .panel.good { border-top: 3px solid var(--ok); }
+  .panel.gap { border-top: 3px solid var(--no-solid); }
+  .panel h3 { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .panel h3 .badge { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; padding: 3px 9px; border-radius: 5px; }
+  .panel.good .badge { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+  .panel.gap .badge { color: var(--no-solid); background: color-mix(in srgb, var(--no-solid) 16%, transparent); }
+  ul.clean { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+  ul.clean li { padding-left: 22px; position: relative; font-size: 15px; line-height: 1.5; color: var(--muted); }
+  ul.clean li b { color: var(--text); font-weight: 600; }
+  .panel.good ul.clean li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-weight: 700; }
+  .panel.gap ul.clean li::before { content: "✕"; position: absolute; left: 0; color: var(--no-solid); font-weight: 700; }
+
+  .note {
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    padding: 15px 18px;
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.55;
+    background: rgba(255, 255, 255, 0.02);
+    margin-top: 16px;
+  }
+  .note b { color: var(--text); }
+  .note .k { font-family: var(--font-mono); color: var(--paint); font-size: 13px; }
+  .note ul { margin: 9px 0 0; padding-left: 18px; }
+  .note li { margin: 5px 0; }
+  .note li b { color: var(--text); }
+
+  /* todo */
+  ol.todo { list-style: none; counter-reset: t; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  ol.todo li { counter-increment: t; display: grid; grid-template-columns: 38px 1fr; gap: 14px; align-items: start; }
+  ol.todo li::before { content: counter(t, decimal-leading-zero); font-family: var(--font-mono); color: var(--paint); font-size: 14px; padding-top: 2px; }
+  ol.todo li b { font-weight: 600; }
+  ol.todo li span { color: var(--muted); }
+
+  /* questions */
+  .risks { background: var(--ground-2); }
+  .hazard { height: 16px; margin-bottom: 40px; border-radius: 3px; background: repeating-linear-gradient(45deg, var(--paint) 0 16px, #15171A 16px 32px); }
+  .qgroup { margin-bottom: 30px; }
+  .qgroup:last-child { margin-bottom: 0; }
+  .qhead {
+    font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text); margin: 0 0 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .qhead .pill { font-size: 10.5px; letter-spacing: 0.1em; color: #0C0E10; background: var(--paint); padding: 3px 8px; border-radius: 4px; font-weight: 700; }
+  .qhead.primary { color: var(--paint); }
+  .qlist { display: flex; flex-direction: column; gap: 10px; }
+  .q { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; transition: border-color 0.18s ease, transform 0.18s ease; }
+  .q:hover { border-color: color-mix(in srgb, var(--paint) 50%, var(--line)); transform: translateX(3px); }
+  .q b { color: var(--paint); font-weight: 600; }
+  .q span { color: var(--muted); }
+
+  footer { padding: 60px 0 80px; color: var(--muted); }
+  footer .summary { border: 1px solid var(--line); border-radius: 8px; padding: 24px 26px; background: var(--card); color: var(--text); font-size: 16px; line-height: 1.6; margin-bottom: 22px; }
+  footer .summary b { color: var(--paint); }
+  footer .meta { font-family: var(--font-mono); font-size: 13px; line-height: 1.7; }
+  footer .meta b { color: var(--text); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal { opacity: 0; transform: translateY(14px); animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+    .reveal.d1 { animation-delay: 0.06s; }
+    .reveal.d2 { animation-delay: 0.14s; }
+    .reveal.d3 { animation-delay: 0.22s; }
+    @keyframes rise { to { opacity: 1; transform: none; } }
+  }
+
+  @media (max-width: 760px) {
+    body { font-size: 16px; }
+    .triad, .grid2, .split { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hero-dashes reveal"></div>
+    <p class="eyebrow reveal">Компьютерное зрение · запрос на ML-ревью</p>
+    <h1 class="reveal d1">Анализ дорожных дефектов <em>по фотографии</em></h1>
+    <p class="lede reveal d2">
+      Прикладная CV-система на <b style="color:var(--text)">готовых нейросетях</b>: детектор дефектов
+      (YOLO, обучен на RDD2022), сегментация формы (SAM + классика по трещинам), относительная глубина
+      (Depth Anything). Это фундамент будущей платформы учёта дефектов дорог. Нужна обратная связь именно
+      по <b style="color:var(--text)">ML-части</b> — модели, дообучение, домен-гэп и, главное,
+      методология валидации.
+    </p>
+    <div class="chips reveal d2">
+      <span class="chip">детектор <b>YOLOv12s · RDD2022</b></span>
+      <span class="chip">сегментация <b>MobileSAM</b></span>
+      <span class="chip">глубина <b>Depth Anything V2 Small</b></span>
+      <span class="chip">CPU-only</span>
+      <span class="chip"><b>89/89</b> тестов в venv</span>
+    </div>
+
+    <div class="triad reveal d3">
+      <div class="cap ok">
+        <span class="state">Модели дают надёжно</span>
+        <strong>Детекция, класс, контур, форма</strong>
+        <span class="detail">детектор + сегментатор работают на любом RGB-кадре; форма в пикселях — без допущений.</span>
+      </div>
+      <div class="cap warn">
+        <span class="state">Только с эталоном в кадре</span>
+        <strong>Размеры в сантиметрах</strong>
+        <span class="detail">масштаб берётся от объекта известного размера (люк). Точность оценочная, натурно не подтверждена.</span>
+      </div>
+      <div class="cap no">
+        <span class="state">Принципиально не выдаём</span>
+        <strong>Глубина в сантиметрах</strong>
+        <span class="detail">монокуляр не даёт вертикаль. <code>depth_cm = null</code> жёстко — вопрос, могут ли это снять learned-модели (см. ниже).</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Принцип</p>
+    <h2>Честность относительно того, что модели реально могут</h2>
+    <div class="principle">
+      Движок <b>не выдаёт чисел, которых не может обосновать.</b> <code>depth_cm</code> всегда
+      <code>null</code>, вердикт ГОСТ без сертифицируемой глубины — <code>indeterminate_without_depth</code>.
+      Это зашито в код и покрыто тестами на реальном конвейере + рантайм-валидатором.
+    </div>
+    <p class="lede">
+      Для ML-аудитории это важно так: система честно отделяет <b style="color:var(--text)">то, что выходы
+      моделей подтверждают</b>, от того, что было бы лишь правдоподобной галлюцинацией. Главный открытый
+      вопрос — могут ли современные нейросети честно <em>расширить</em> эту границу (метрическая глубина,
+      масштаб без эталона). Об этом — в вопросах к вам.
+    </p>
+  </div>
+</section>
+
+<div class="lane"></div>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Стек и конвейер</p>
+    <h2>Какие модели и как соединены</h2>
+    <p style="color:var(--muted); margin-bottom:18px;">Поток обработки одного фото:</p>
+    <div class="pipe">
+      <span class="stage">image</span><span class="arrow">→</span>
+      <span class="stage key">detect</span><span class="arrow">→</span>
+      <span class="stage key">scale</span><span class="arrow">→</span>
+      <span class="group">
+        <span class="lbl">на дефект</span>
+        <span class="stage key">segment</span><span class="arrow">→</span>
+        <span class="stage">shape</span><span class="arrow">→</span>
+        <span class="stage">metric</span>
+      </span><span class="arrow">→</span>
+      <span class="stage key">depth</span><span class="arrow">→</span>
+      <span class="stage">severity</span><span class="arrow">→</span>
+      <span class="stage">report</span>
+    </div>
+    <p style="color:var(--muted); font-size:14px; margin-bottom:26px;">Жёлтым — узлы на нейросетях.</p>
+
+    <div class="grid2">
+      <div class="mod ml">
+        <h3>Детектор <span class="kind">ML</span> <span class="mfile">detect.py</span></h3>
+        <p><b>YOLOv12s, обучен на RDD2022</b> (5 классов: продольная/поперечная/сетчатая трещины, яма, заделка).
+        Реестр с фолбэк-цепочкой; опц. ансамбль (2-й pothole-проход, IoU-дедуп) под нетипичные ямы;
+        инфраструктура дообучения от чекпоинта готова.</p>
+      </div>
+      <div class="mod ml">
+        <h3>Сегментация <span class="kind">ML + CV</span> <span class="mfile">segment.py</span></h3>
+        <p>Площадные дефекты — <b>MobileSAM</b> (через ultralytics, эмбеддинг кадра кэшируется). Трещины —
+        <b>классическая морфология в полном разрешении</b>: на инференсе 1024px трещина 1–3 px субпиксельна
+        для SAM. Метод фиксируется в <code>mask_method</code>.</p>
+      </div>
+      <div class="mod ml">
+        <h3>Глубина <span class="kind">ML</span> <span class="mfile">depth.py</span></h3>
+        <p><b>Depth Anything V2 Small</b> → только относительный бакет <code>shallow / medium / deep</code>
+        (медиана в маске vs кольцо). Сантиметры не выдаёт. Пороги бакета эмпирические, не калиброваны.</p>
+      </div>
+      <div class="mod aux">
+        <h3>Масштаб <span class="mfile">scale.py</span></h3>
+        <p>Геометрия: <code>mm/px</code> из эллипса люка (ГОСТ 3634). Многоступенчатая защита от ложного
+        эталона; рискованные источники (разметка/борт) выключены по умолчанию. <em>(не-ML модуль)</em></p>
+      </div>
+      <div class="mod aux">
+        <h3>Метрика и форма <span class="mfile">shape.py</span></h3>
+        <p>Длина/ширина = стороны <code>minAreaRect</code> по всей маске; площадь = все компоненты.
+        Дескрипторы (eccentricity, solidity) по крупнейшей компоненте.</p>
+      </div>
+      <div class="mod aux">
+        <h3>Серьёзность + контракт <span class="mfile">severity.py · report.py</span></h3>
+        <p>Вердикт по ГОСТ Р 50597-2017 (три условия). Стабильный JSON для будущих подсистем: класс, bbox,
+        маска RLE, дескрипторы, <code>metric</code> (<code>null</code> где нельзя измерить), warnings.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="lane"></div>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Валидация · главное для ML-ревью</p>
+    <h2>Чему можно верить — и чему пока нет</h2>
+    <div class="split">
+      <div class="panel good">
+        <h3><span class="badge">подтверждено</span></h3>
+        <ul class="clean">
+          <li><b>89/89 юнит-тестов в venv проекта</b>: honest-mode на <b>реальном</b> конвейере (depth=null, indeterminate) + рантайм-валидатор JSON; гомография на known-answer; сценарии кросс-валидации эталонов.</li>
+          <li><b>Смок на 6 фото</b>: модели грузятся, маски строятся, инварианты соблюдены, без падений.</li>
+          <li><b>Визуальная верификация масок</b>: ямы — good, тёмные трещины — acceptable.</li>
+        </ul>
+      </div>
+      <div class="panel gap">
+        <h3><span class="badge">не подтверждено</span></h3>
+        <ul class="clean">
+          <li><b>Ни одно ключевое число не подтверждено на невиденных данных.</b> mAP 0.966/0.716 — на RDD2022 Czech, который модель видела (<b>train-contaminated</b>, val⊂train), и существует лишь комментарием, не автоматизирована.</li>
+          <li><b>Нет независимого тест-сета РФ</b> и <b>нет mask IoU</b> против размеченных масок — обобщение не измерено.</li>
+          <li><b>Натурная валидация масштаба не сделана</b> (scale-стек проверен только на идеальной синтетике).</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note">
+      <span class="k">независимый аудит кода (13 агентов: 8 аудиторов + 5 ИИ-линз)</span> подтвердил, что honest-mode
+      реализован жёстко, и вскрыл к правке:
+      <ul>
+        <li><b>importorskip маскирует пропуски.</b> На машине без <code>cv2</code>/<code>torch</code> молча пропускается значительная часть сюиты (по оценке аудита — до ~60%, включая honest-mode-тесты). В venv проекта все 89 реально прошли, но «зелёный» статус сам по себе исполнение не доказывает.</li>
+        <li><b>Тихая деградация детектора.</b> Если rezzzq недоступна, основным становится одноклассовый keremberke (1 из 5 классов), но <code>is_fallback</code> (через <code>name.endswith("coco")</code>) его не помечает — в отчёте нет предупреждения.</li>
+        <li><b>length_cm без фильтра компонент.</b> <code>minAreaRect</code> считается по всем пикселям маски: выброс-пиксель в маске SAM/GrabCut раздувает длину и может ложно переключить ногу ГОСТ «длина ≥ 15 см».</li>
+        <li><b>Инвариант контракта без гейта.</b> В mobile_sam-пути нет проверки <code>mask.shape == кадр</code> (есть в двух других путях), так что <code>mask_rle.size == размер кадра</code> держится лишь по факту поведения SAM.</li>
+        <li><b>Бакет глубины не калиброван.</b> Эмпирические пороги поверх нормировки на контраст всего кадра → результат зависит от глобальной сцены, а не от физической глубины дефекта.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="lane"></div>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Осталось</p>
+    <h2>Что дальше — по ML</h2>
+    <ol class="todo">
+      <li><b>Независимый датасет и валидация на РФ-данных.</b> <span>Разметка российских кадров (bbox + маски) для честной mAP/IoU и решения о дообучении (на Czech дообучать бессмысленно — модель его видела).</span></li>
+      <li><b>Автоматизировать метрики.</b> <span>mAP/mask-IoU в воспроизводимом стенде с фиксацией версии весов; убрать «зелёный, но пропущенный» эффект importorskip в CI.</span></li>
+      <li><b>Исследовать learned-глубину и learned-масштаб.</b> <span>Проверить, снимают ли метрические depth-модели и single-image-метрология часть текущих «физических» ограничений (см. вопросы).</span></li>
+      <li><b>ONNX-экспорт детектора.</b> <span>Убрать AGPL-зависимость <code>ultralytics</code> из рантайма; проверить YOLO-seg в onnxruntime на CPU.</span></li>
+      <li><b>Подсистемы 2–5</b> <span>(backend, веб-UI с картой, уведомления, геолокация) — отдельные этапы.</span></li>
+    </ol>
+  </div>
+</section>
+
+<section class="risks">
+  <div class="wrap">
+    <div class="hazard"></div>
+    <p class="eyebrow">Вопросы к вам</p>
+    <h2>Где нужна помощь по ИИ</h2>
+    <p class="lede" style="margin-bottom:38px; max-width:64ch;">
+      Сгруппировано по темам. Это основной запрос ревью — буду благодарен за конкретику и за то,
+      чтобы вскрыть ошибки в подходе к моделям и валидации.
+    </p>
+
+    <div class="qgroup">
+      <p class="qhead primary"><span class="pill">главное</span> Методология валидации</p>
+      <div class="qlist">
+        <div class="q"><b>Как честно измерить обобщение?</b> <span>Текущая mAP train-contaminated. Какой минимальный протокол независимого тест-сета РФ — сколько кадров, какая разметка, как избежать утечки? Как оценивать на распределении, отличном от RDD2022?</span></div>
+        <div class="q"><b>Метрики под дорожные дефекты.</b> <span>mAP@[.5:.95] + mask AP/IoU — достаточно? Чем мерить качество на тонких вытянутых объектах (трещины), где IoU и box-метрики плохо работают?</span></div>
+        <div class="q"><b>Калибровка уверенности.</b> <span>Пороги confidence по классам, надёжность score детектора на чужом домене — на что смотреть?</span></div>
+      </div>
+    </div>
+
+    <div class="qgroup">
+      <p class="qhead">Модели и дообучение</p>
+      <div class="qlist">
+        <div class="q"><b>Базовая модель.</b> <span>YOLOv12s на RDD2022 — разумный выбор на 2026? Более сильные/новые детекторы под мелкие дефекты и трещины? Стоит ли open-vocabulary детектор для нетипичных дефектов (яма, засыпанная светлым материалом, которую модель не видит)?</span></div>
+        <div class="q"><b>Дообучение vs свой датасет.</b> <span>При ограниченной разметке РФ — дообучать от чекпоинта (заморозка слоёв) или собирать заново? Сколько размеченных кадров минимально для заметного эффекта? Синтетика/аугментация под домен-гэп?</span></div>
+        <div class="q"><b>Ансамбль.</b> <span>Второй pothole-проход с IoU-дедупом — приемлемо или есть более чистое решение пропусков?</span></div>
+      </div>
+    </div>
+
+    <div class="qgroup">
+      <p class="qhead">Сегментация трещин</p>
+      <div class="qlist">
+        <div class="q"><b>Специализированная crack-seg модель.</b> <span>SAM не видит субпиксельные трещины, классическая морфология даёт ложные отклики на тенях. Что посоветуете — CrackSeg9k, SegmRDD, иное? Оправдано ли дообучение под трещины?</span></div>
+      </div>
+    </div>
+
+    <div class="qgroup">
+      <p class="qhead primary">Глубина и масштаб через ИИ — можно ли снять «физическую» границу?</p>
+      <div class="qlist">
+        <div class="q"><b>Метрическая монокулярная глубина.</b> <span>Мы считаем глубину в см невозможной по 1 фото. Достаточно ли надёжны learned metric-depth модели (Metric3D v2, UniDepth, Depth Pro, Marigold), чтобы хотя бы оценить «глубина ≥ 5 см» для ГОСТ — или для нормативных решений это всё ещё слишком ненадёжно?</span></div>
+        <div class="q"><b>Масштаб без эталона.</b> <span>Можно ли обучаемой моделью оценить масштаб сцены (single-image metrology, learned ground-plane / высота-угол камеры) без объекта известного размера в кадре? Это сняло бы главное ограничение.</span></div>
+        <div class="q"><b>Относительная глубина.</b> <span>Depth Anything Small даёт относительный выход → бакет на эмпирических порогах поверх нормировки на контраст всего кадра. Как валидировать/калибровать его без датчика?</span></div>
+      </div>
+      <div class="note">
+        <b>Предварительный ответ изнутри проекта</b> (просьба оспорить): на дорожном OOD-домене learned metric-depth
+        (Metric3D / UniDepth / Depth Pro) даёт ~15–40% ошибки по высоте — для порога ГОСТ «≥ 5 см» это уровень шума.
+        Похоже, границу можно снять не подменой модели, а калиброванным на РФ-люках стендом с заявленным
+        доверительным интервалом. Так ли это?
+      </div>
+    </div>
+
+    <div class="qgroup">
+      <p class="qhead">Инференс и продакшен</p>
+      <div class="qlist">
+        <div class="q"><b>CPU-инференс.</b> <span>~100–180 мс/кадр — это только детектор; полный конвейер с MobileSAM + Depth Anything на CPU тяжелее и пока не замерен. ONNX-экспорт YOLO-seg — подводные камни в onnxruntime? Квантизация без потери качества на дефектах? Реалистичен ли CPU-only для прода?</span></div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:34px;">
+      <b>Вне фокуса этого ревью</b> (нужны другие специалисты): геометрия масштаба по люку и допуски эллипса;
+      толкование ГОСТ Р 50597-2017 и нормативные сроки. По ИИ-части они не блокирующие.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="summary">
+      <b>Резюме.</b> Готов CV-движок на готовых нейросетях, который честно различает выходы, подтверждённые
+      моделями, и то, что было бы галлюцинацией. С точки зрения ML три главных пробела: <b>обобщение
+      детектора не измерено</b> (mAP train-contaminated, нет независимого РФ-набора), <b>нет mask IoU и
+      воспроизводимого стенда метрик</b>, и открыт вопрос — <b>могут ли learned-модели честно дать
+      метрическую глубину/масштаб</b>. По ним обратная связь нужнее всего.
+    </div>
+    <p class="meta">
+      <b>Стек:</b> Python · CPU-only · YOLOv12s (RDD2022) · MobileSAM · Depth Anything V2 Small · scikit-image / OpenCV<br>
+      <b>Лицензии:</b> MobileSAM, Depth Anything Small — Apache-2.0 · ultralytics — AGPL-3.0 (для продукта → ONNX) · веса детектора — открытый вопрос<br>
+      <b>Данные:</b> RDD2022 (CC BY-SA 4.0) · независимого набора РФ пока нет
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -17,6 +17,13 @@ IMG_EXT = {".jpg", ".jpeg", ".png"}
 
 
 def main() -> int:
+    # На Windows перенаправленный stdout кодируется cp1251 — символы вне неё
+    # (✓, └) роняют print. Заменяем некодируемое, а не падаем (как в cli.py).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:  # noqa: BLE001 — нестандартный поток (тесты, embed)
+            pass
     print("=" * 70)
     print("СМОК-ТЕСТ: CV-движок дорожных дефектов")
     print("=" * 70)
@@ -66,7 +73,6 @@ def main() -> int:
             print(f"  [ОШИБКА] {img_path.name[:20]}: {e}")
             traceback.print_exc()
             continue
-        print(f"Сегментатор backend: {pipe.segmenter.backend}", end="  |  ") if total == 0 else None
         stem = report_mod.unique_stem(img_path.stem[:24], used_stems)
         report_mod.save_report(rep, out, stem)
         if not imgio.write_image(out / f"{stem}_annotated.jpg", overlay):
@@ -85,6 +91,9 @@ def main() -> int:
                   f"ecc={d['shape']['eccentricity']:.2f}")
 
     print("-" * 70)
+    # backend известен только после ленивой загрузки (первый segment()) —
+    # печатаем один раз после прогона, а не 'none' до него.
+    print(f"Сегментатор backend: {pipe.segmenter.backend}")
     print(f"ИТОГО дефектов: {total}. Результаты: {out}")
     print("=" * 70)
     return 0

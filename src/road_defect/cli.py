@@ -15,8 +15,10 @@ from . import report as report_mod
 from .pipeline import DefectPipeline
 
 IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-PAIR_FRONT_STEMS = {"front", "before", "a", "1", "view_a", "pered", "vpered", "впереди"}
-PAIR_BACK_STEMS = {"back", "after", "b", "2", "view_b", "zad", "szadi", "pozadi", "сзади"}
+# Порядок = приоритет: канонические front/back главнее коротких алиасов —
+# лишний кадр 1.jpg рядом с front.jpg не должен молча подменить пару.
+PAIR_FRONT_STEMS = ("front", "before", "pered", "vpered", "впереди", "view_a", "a", "1")
+PAIR_BACK_STEMS = ("back", "after", "zad", "szadi", "pozadi", "сзади", "view_b", "b", "2")
 
 
 def _validate_image_path(path: Path) -> str | None:
@@ -27,12 +29,16 @@ def _validate_image_path(path: Path) -> str | None:
     return None
 
 
-def _named_image(folder: Path, stems: set[str]) -> Path | None:
-    images = sorted(p for p in folder.iterdir()
-                    if p.is_file() and p.suffix.lower() in IMG_EXT)
-    for image in images:
-        if image.stem.lower() in stems:
-            return image
+def _named_image(folder: Path, stems: tuple[str, ...]) -> Path | None:
+    """Файл по ПРИОРИТЕТУ имён из stems (front/back главнее алиасов);
+    при одинаковом стеме с разными расширениями — первый по алфавиту."""
+    by_stem: dict[str, Path] = {}
+    for p in sorted(folder.iterdir()):
+        if p.is_file() and p.suffix.lower() in IMG_EXT:
+            by_stem.setdefault(p.stem.lower(), p)
+    for stem in stems:
+        if stem in by_stem:
+            return by_stem[stem]
     return None
 
 

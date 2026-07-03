@@ -13,6 +13,10 @@
   • слияние — обратно-дисперсионное (снижает дисперсию двух независимых
     замеров), но полоса ошибки НИКОГДА не уже лучшего одиночного вида: синфазное
     смещение наклона слиянием не убирается, выгода идёт в уверенность, не в банд;
+  • полосы считаются в «площадных» процентах (area ~ mm_per_px², т.е. её
+    относительная ошибка ≈ 2× линейной полосы масштаба); в metric.error_band_pct
+    уходит линейный эквивалент (÷2) — та же семантика, что у одиночного кадра, —
+    а площадная полоса отдаётся явно в cross_view.area_error_band_pct;
   • СОГЛАСИЕ видов — честный сигнал уверенности (+1 ступень, но не до high, если
     хоть один вид low), РАСХОЖДЕНИЕ — тревога (понижение до low, шире полоса);
   • глубина в см НЕ выдаётся НИКОГДА (два косых кадра ≠ Сценарий C SfM с
@@ -216,7 +220,7 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
 
     ea = a.error_band_pct if a.error_band_pct is not None else 30.0
     eb = b.error_band_pct if b.error_band_pct is not None else 30.0
-    better_band, worse_band = min(ea, eb), max(ea, eb)
+    worse_band = max(ea, eb)
 
     # Согласие/расхождение — по ДЕ-РАКУРСНОЙ площади. Сырые length/width НЕ берём
     # в порог: оба вида укорочены ракурсом синфазно, и их «расхождение» — артефакт,
@@ -226,7 +230,10 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
     len_dis = _rel_diff(a.length_cm, b.length_cm)   # только для прозрачности в JSON
     wid_dis = _rel_diff(a.width_cm, b.width_cm)
 
-    area_cm2, area_band = inverse_variance_fuse([aa, ab], [ea, eb])
+    # Сигмы для слияния ПЛОЩАДЕЙ — площадные: area ~ mm_per_px² → отн. ошибка ≈ 2e.
+    # Значение слияния от равномасштабного множителя весов не меняется, а полоса
+    # честно удваивается против линейной (док модуля).
+    area_cm2, area_band = inverse_variance_fuse([aa, ab], [2.0 * ea, 2.0 * eb])
     area_m2 = round(area_cm2 / 10000.0, 4)
 
     # length/width — НИЖНЯЯ ОЦЕНКА: ракурс только УКОРАЧИВАЕТ план, поэтому берём
@@ -255,25 +262,32 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
 
     # Полоса НИКОГДА не уже ХУДШЕГО одиночного вида: синфазное смещение наклона
     # слиянием не убирается — выгода идёт в уверенность, не в полосу (док модуля).
-    band_floor = worse_band
+    # Всё ниже — в ПЛОЩАДНЫХ процентах (те же единицы, что area_band и area_dis).
+    band_floor_area = 2.0 * worse_band
     if not area_tilt_corrected:
-        band_floor = max(band_floor, cfg.fusion_uncorrected_area_band_pct)
+        band_floor_area = max(band_floor_area, cfg.fusion_uncorrected_area_band_pct)
 
     if area_dis <= cfg.fusion_agree_tol:
         agreement = "agree"
         conf = _promote(base_conf, 1) if allow_promote else base_conf
         if either_low:                      # никогда не до high, если вид low
             conf = _worse(conf, "medium")
-        band = max(area_band, band_floor)
+        band_area = max(area_band, band_floor_area)
     elif area_dis >= cfg.fusion_disagree_max:
         agreement = "disagree"
         conf = "low"                        # тревога: измерение ненадёжно
-        band = max(band_floor, area_dis * 100.0)
+        band_area = max(band_floor_area, area_dis * 100.0)
         note += f" РАСХОЖДЕНИЕ площади видов {area_dis * 100:.0f}% — измерение ненадёжно."
     else:
         agreement = "partial"
         conf = base_conf
-        band = max(area_band, band_floor, area_dis * 100.0)
+        band_area = max(area_band, band_floor_area, area_dis * 100.0)
+
+    # В контракт metric идёт линейный эквивалент (½ площадной) — семантика поля
+    # совпадает с одиночным кадром; band_area ≥ 2·worse_band ⇒ band ≥ worse_band.
+    band = band_area / 2.0
+    note += (f" Полоса ошибки: ±{band:.0f}% линейные размеры, "
+             f"±{band_area:.0f}% площадь.")
 
     cross_view = {
         "n_views": 2,
@@ -281,6 +295,7 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
         "fused": True,
         "disagreement_pct": round(area_dis * 100.0, 1),   # порог считается по площади
         "area_disagreement_pct": round(area_dis * 100.0, 1),
+        "area_error_band_pct": round(band_area, 1),   # площадная полоса (≈2× линейной)
         "length_disagreement_pct": round(len_dis * 100.0, 1),
         "width_disagreement_pct": round(wid_dis * 100.0, 1),
         "shape_divergence": round(shape_div, 3),

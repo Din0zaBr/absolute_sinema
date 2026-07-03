@@ -51,6 +51,16 @@ def test_fuse_pair_agreement_promotes():
     assert f.area_cm2 is not None and f.length_cm is not None
 
 
+def test_fuse_pair_area_band_is_twice_linear():
+    # area ~ mm_per_px² → площадная полоса ≈ 2× линейной. Линейная (metric.
+    # error_band_pct) не уже худшего вида; площадная отдаётся явно в cross_view.
+    f = fuse_pair(_view(100.0), _view(110.0))  # оба вида 18% (линейных)
+    assert math.isclose(f.cross_view["area_error_band_pct"],
+                        2.0 * f.error_band_pct, rel_tol=1e-6)
+    assert math.isclose(f.cross_view["area_error_band_pct"], 36.0, rel_tol=1e-6)
+    assert "площадь" in f.note                 # полосы названы в note явно
+
+
 def test_fuse_pair_disagreement_flags_and_widens():
     f = fuse_pair(_view(100.0), _view(200.0))  # расхождение 50% > 40%
     assert f.available                          # число всё ещё выдаётся...
@@ -91,11 +101,14 @@ def test_fused_depth_always_null():
 
 def test_fuse_pair_area_not_corrected_when_tilt_unknown():
     # Наклон неизвестен в обоих видах (эталон-разметка/борт): площадь НЕ
-    # корректируется, флаг честный, полоса расширена до запаса на ракурс.
+    # корректируется, флаг честный, ПЛОЩАДНАЯ полоса расширена до запаса на
+    # ракурс (в metric.error_band_pct — линейный эквивалент, половина).
     f = fuse_pair(_view(100.0, tilt_deg=None), _view(110.0, tilt_deg=None))
     assert f.available
     assert f.cross_view["area_tilt_corrected"] is False
-    assert f.error_band_pct >= config.DEFAULT_INFERENCE.fusion_uncorrected_area_band_pct
+    floor = config.DEFAULT_INFERENCE.fusion_uncorrected_area_band_pct
+    assert f.cross_view["area_error_band_pct"] >= floor
+    assert f.error_band_pct >= floor / 2.0
 
 
 def test_fuse_pair_asymmetric_tilt_no_false_disagreement():

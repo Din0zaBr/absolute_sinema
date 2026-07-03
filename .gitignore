@@ -24,3 +24,8 @@ datasets/
 # временное
 *_brief_tail.txt
 .pytest_cache/
+_repro_*.py
+
+# локальные артефакты (конфиг Obsidian-вольта, бинарные отчёты)
+.obsidian/
+*.docx

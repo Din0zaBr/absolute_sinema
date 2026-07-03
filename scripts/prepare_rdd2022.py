@@ -41,6 +41,61 @@ def _find_train_dir(root: Path) -> Path | None:
     return None
 
 
+def _zip_signature(src: Path) -> str:
+    """Подпись архива для штампа распаковки: размер + mtime_ns.
+
+    Без чтения 245 МБ содержимого; любое обновление/перекачивание архива
+    меняет подпись — ошибка возможна только в безопасную сторону
+    (лишняя переспаковка)."""
+    st = src.stat()
+    return f"{st.st_size}:{st.st_mtime_ns}"
+
+
+def _ensure_extracted(src: Path) -> Path:
+    """Для zip — путь к ПОЛНОСТЬЮ распакованной копии; иначе src как есть.
+
+    Прерванная или устаревшая распаковка не должна молча становиться «готовым»
+    источником — иначе датасет строится усечённым/неактуальным при коде
+    возврата 0 (репро агентов-скептиков, 2026-07-02 и 2026-07-03). Поэтому:
+      • распаковка атомарна: во временную папку *.extracting + rename;
+      • ПОСЛЕ успешного rename рядом с архивом пишется штамп <имя>.zip.extracted
+        с подписью архива — существующая папка принимается ТОЛЬКО при совпадении
+        штампа с текущим архивом. Счёт файлов такое не ловит: подменённый архив
+        с тем же/меньшим числом файлов, legacy-копия с усечённым последним
+        файлом, недостача, замаскированная посторонним Thumbs.db;
+      • сверка числа файлов с архивом остаётся второй линией защиты — на случай
+        ручного удаления файлов из распакованной копии при целом штампе.
+    """
+    if src.suffix.lower() != ".zip":
+        return src
+    extract_dir = src.with_suffix("")
+    stamp = src.with_name(src.name + ".extracted")
+    signature = _zip_signature(src)
+    with zipfile.ZipFile(src) as z:
+        n_members = sum(1 for n in z.namelist() if not n.endswith("/"))
+        if extract_dir.exists():
+            stale = None
+            if (not stamp.exists()
+                    or stamp.read_text(encoding="utf-8").strip() != signature):
+                stale = "архив изменился или распаковка не подтверждена штампом"
+            else:
+                n_disk = sum(1 for p in extract_dir.rglob("*") if p.is_file())
+                if n_disk < n_members:
+                    stale = f"на диске {n_disk} файлов из {n_members} в архиве"
+            if stale:
+                print(f"[!] {extract_dir.name}: {stale} — распаковываю заново.")
+                shutil.rmtree(extract_dir)
+        if not extract_dir.exists():
+            print(f"Распаковка {src.name} ...")
+            tmp_dir = extract_dir.with_name(extract_dir.name + ".extracting")
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+            z.extractall(tmp_dir)
+            tmp_dir.rename(extract_dir)
+            stamp.write_text(signature, encoding="utf-8")
+    return extract_dir
+
+
 def _voc_to_yolo_lines(xml_path: Path, skipped: Counter) -> list[str] | None:
     """Строки YOLO-аннотации из VOC XML. None, если XML не разобрался."""
     try:
@@ -86,13 +141,7 @@ def main() -> int:
         print(f"Не найдено: {src}")
         return 1
 
-    if src.suffix.lower() == ".zip":
-        extract_dir = src.with_suffix("")
-        if not extract_dir.exists():
-            print(f"Распаковка {src.name} ...")
-            with zipfile.ZipFile(src) as z:
-                z.extractall(extract_dir)
-        src = extract_dir
+    src = _ensure_extracted(src)
 
     train_dir = _find_train_dir(src)
     if train_dir is None:
@@ -101,6 +150,11 @@ def main() -> int:
     print(f"Источник: {train_dir}")
 
     out = ROOT / "datasets" / f"{src.name}_yolo"
+    if out.exists():
+        # train/val-назначение позиционное (sorted + сид): при изменившемся
+        # наборе картинка может сменить split, а старая копия остаться в другом —
+        # утечка train→val. Выход всегда строится с нуля.
+        shutil.rmtree(out)
     for split in ("train", "val"):
         (out / "images" / split).mkdir(parents=True, exist_ok=True)
         (out / "labels" / split).mkdir(parents=True, exist_ok=True)
@@ -112,10 +166,12 @@ def main() -> int:
     skipped: Counter = Counter()
     kept = Counter()
     n_bg = 0
+    n_bad_xml = 0
     for img, is_val in zip(images, val_mask):
         xml_path = train_dir / "annotations" / "xmls" / f"{img.stem}.xml"
         lines = _voc_to_yolo_lines(xml_path, skipped) if xml_path.exists() else []
         if lines is None:
+            n_bad_xml += 1      # битый/усечённый XML — не молчим (см. итог ниже)
             lines = []
         split = "val" if is_val else "train"
         shutil.copy2(img, out / "images" / split / img.name)
@@ -138,6 +194,9 @@ def main() -> int:
     print(f"Готово: {out}")
     print(f"  картинок: {len(images)} (train {len(images) - n_val} / val {n_val}), фоновых: {n_bg}")
     print(f"  боксов по классам: {dict(kept)}")
+    if n_bad_xml:
+        print(f"  [!] битых XML (ParseError/нет size): {n_bad_xml} — "
+              "их картинки учтены ФОНОМ; проверьте целостность датасета")
     if skipped:
         print(f"  пропущено меток вне таксономии rezzzq: {dict(skipped)}")
     print(f"  data.yaml: {yaml_path}")

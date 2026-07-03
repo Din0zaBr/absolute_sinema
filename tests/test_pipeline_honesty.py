@@ -138,6 +138,28 @@ def test_two_view_never_reports_depth(tmp_path, monkeypatch):
     assert "cross_view" in report["defects"][0]["metric"]
 
 
+def test_fused_pair_overlay_redrawn_with_fused_metric(tmp_path, monkeypatch):
+    # Ревью 2026-07-02: overlay вида A обязан перерисовываться после слияния —
+    # иначе на картинке остаются до-слиянные сантиметры, расходящиеся с fused
+    # JSON под тем же стемом.
+    pa, pb = _write_two(tmp_path)
+    pipe = DefectPipeline(use_depth=False)
+    pipe.detector = FakeDetector()
+    ref = ReferenceMeasurement(
+        available=True, type="manhole_gost3634_cover", known_mm=646,
+        measured_px=323.0, mm_per_px=2.0, confidence="high",
+        error_band_pct=12.0, tilt_deg=12.0)
+    monkeypatch.setattr(scale_mod, "scale_from_manhole", lambda *a, **k: ref)
+
+    rep_single, ov_single, _ = pipe.analyze_image(pa)
+    report, ov_a, _, _ = pipe.analyze_pair(pa, pb)
+    assert report["mode"] == "two_view_fused"
+    single_eqd = rep_single["defects"][0]["metric"]["equivalent_diameter_cm"]
+    fused_eqd = report["defects"][0]["metric"]["equivalent_diameter_cm"]
+    assert fused_eqd != single_eqd          # tilt-поправка изменила число...
+    assert not np.array_equal(ov_single, ov_a)  # ...и на картинке оно новое
+
+
 def test_unmatched_pair_emits_no_fused_number(tmp_path, monkeypatch):
     # Во втором виде ямы нет → слияние не выполняется, фабрикованных чисел нет.
     pa, pb = _write_two(tmp_path)
