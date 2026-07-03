@@ -64,7 +64,7 @@ python scripts/make_demo_report.py --outputs outputs --originals .
 ## Тесты
 
 ```powershell
-python -m pytest -q                  # 126 юнит-тестов (без сети и моделей)
+python -m pytest -q                  # 129 юнит-тестов (без сети и моделей)
 python scripts/smoke_test.py         # интеграционный смок (качает веса)
 python scripts/validate_outputs.py   # инварианты JSON-отчётов после смока
 ```

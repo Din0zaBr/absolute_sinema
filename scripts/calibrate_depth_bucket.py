@@ -1,6 +1,7 @@
 """Калибровка порогов бакета глубины (v0) на демо-фото (2026-07-03).
 
 Запуск:  python scripts/calibrate_depth_bucket.py [папка_с_json] [--nulls N]
+                                                  [--images ПАПКА_С_ФОТО]
 
 Что делает (стратегия из синтеза панели дизайна):
   1. Берёт готовые отчёты outputs/*.json (маски дефектов из mask_rle — конвейер
@@ -65,6 +66,32 @@ def shifted_null_masks(mask: np.ndarray, forbidden: np.ndarray,
     return out
 
 
+def _resolve_image(rep: dict, out_dir: Path,
+                   images_dir: Path | None) -> Path | None:
+    """Найти исходное фото отчёта.
+
+    В отчётах `image` — только имя файла (pipeline пишет image_path.name),
+    поэтому для пар (datasets/local_pairs/NNN/front.jpg) имя одно и то же у
+    всех — ищем СНАЧАЛА по pair_inputs.front (там полный путь; геометрия
+    pair-отчёта — вид A), затем в корне проекта, рядом с отчётами и,
+    при --images, рекурсивно в указанной папке (ревью 2026-07-03)."""
+    candidates: list[Path] = []
+    pin = rep.get("pair_inputs") or {}
+    if pin.get("front"):
+        candidates.append(Path(pin["front"]))
+    candidates += [ROOT / rep["image"], out_dir / rep["image"]]
+    if images_dir is not None:
+        candidates.append(images_dir / rep["image"])
+    for c in candidates:
+        if c.is_file():
+            return c
+    if images_dir is not None:
+        hits = sorted(images_dir.rglob(rep["image"]))
+        if hits:
+            return hits[0]
+    return None
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -74,19 +101,32 @@ def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     out_dir = Path(args[0]) if args else ROOT / "outputs"
     n_nulls = 15
+    images_dir: Path | None = None
     for a in sys.argv[1:]:
         if a.startswith("--nulls"):
             n_nulls = int(a.split("=", 1)[1])
+        elif a.startswith("--images"):
+            images_dir = Path(a.split("=", 1)[1])
 
-    reports = []
-    seen_images = set()
+    # Дедуп — по РАЗРЕШЁННОМУ пути исходника, а не по rep["image"]: у пар
+    # все отчёты называются front.jpg, дедуп по имени терял бы всё, кроме
+    # первой пары (ревью 2026-07-03).
+    reports: list[tuple[dict, Path]] = []
+    seen_paths: set[str] = set()
     for p in sorted(out_dir.glob("*.json")):
         rep = json.loads(p.read_text(encoding="utf-8"))
-        if rep["image"] in seen_images:   # pair-отчёт дублирует вид A
+        if not rep.get("defects"):
             continue
-        seen_images.add(rep["image"])
-        if rep["defects"]:
-            reports.append(rep)
+        img_path = _resolve_image(rep, out_dir, images_dir)
+        if img_path is None:
+            print(f"[!] нет исходника {rep['image'][:40]} — пропуск "
+                  "(подскажите папку флагом --images=...)")
+            continue
+        key = str(img_path.resolve())
+        if key in seen_paths:             # pair-отчёт дублирует вид A
+            continue
+        seen_paths.add(key)
+        reports.append((rep, img_path))
     if not reports:
         print(f"Нет отчётов с дефектами в {out_dir}")
         return 1
@@ -95,11 +135,10 @@ def main() -> int:
     rng = np.random.default_rng(20260703)
     real_rows, null_vals = [], []
 
-    for rep in reports:
-        img_path = ROOT / rep["image"]
+    for rep, img_path in reports:
         img = imgio.read_image(img_path)
         if img is None:
-            print(f"[!] нет исходника {rep['image'][:40]} — пропуск")
+            print(f"[!] не читается {img_path.name[:40]} — пропуск")
             continue
         depth_engine._load()
         if not depth_engine.available:
@@ -122,13 +161,14 @@ def main() -> int:
         forbidden = cv2.dilate(forbidden.astype(np.uint8),
                                np.ones((21, 21), np.uint8), 1).astype(bool)
 
+        label = (rep.get("pair_id") or rep["image"])[:18]
         for d, m in zip(rep["defects"], masks):
             if not m.any():
-                real_rows.append((rep["image"][:18], d["class"], None, None,
+                real_rows.append((label, d["class"], None, None,
                                   None, "mask_below_depth_resolution"))
                 continue
             r = ring_plane_bucket(dmap, m)
-            real_rows.append((rep["image"][:18], d["class"],
+            real_rows.append((label, d["class"],
                               r.get("depth_bucket"), r.get("_rel_norm"),
                               r.get("_drop"), r.get("method")))
             for nm in shifted_null_masks(m, forbidden, n_nulls, rng):
