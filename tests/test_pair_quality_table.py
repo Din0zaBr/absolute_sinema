@@ -16,18 +16,22 @@ _spec.loader.exec_module(pqt)
 
 
 def _report(out: Path, pid: str, front_status: str, back_status: str,
-            potholes=(), matched=False, fused=False) -> None:
+            potholes=(), matched=False, fused=False,
+            view_names=("front.jpg", "back.jpg"), depth_buckets=()) -> None:
+    defects = [{"class": "pothole", "confidence": c} for c in potholes]
+    for d, b in zip(defects, depth_buckets):
+        d["metric"] = {"depth_bucket": b}
     report = {
         "pair_id": pid,
         "mode": "two_view_fused" if fused else "two_view_unmatched",
         "scale": {"available": False},
-        "defects": [{"class": "pothole", "confidence": c} for c in potholes],
+        "defects": defects,
         "fusion": {
             "matched": matched, "fused": fused,
             "per_view": [
-                {"image": "front.jpg", "select_status": front_status,
+                {"image": view_names[0], "select_status": front_status,
                  "pothole_found": front_status == "ok"},
-                {"image": "back.jpg", "select_status": back_status,
+                {"image": view_names[1], "select_status": back_status,
                  "pothole_found": back_status == "ok"},
             ],
         },
@@ -84,6 +88,28 @@ def test_no_pothole_view_and_scene_fallback_without_journal(tmp_path, monkeypatc
     # журнала нет -> сцена честно падает в pair_id, таблица не падает
     assert rows["001"]["scene"] == "001"
     assert rows["002"]["scene"] == "002"
+
+
+def test_alias_view_names_still_detected_by_position(tmp_path, monkeypatch):
+    # per_view берётся ПО ПОЗИЦИИ [A, B], а не по стему 'front'/'back':
+    # алиасные имена (1/2) не должны занижать recall до нуля (ревью 2026-07-05).
+    out = tmp_path / "outputs"
+    _report(out, "001", "ok", "no_pothole", potholes=(0.7,),
+            view_names=("1.jpg", "2.jpg"))
+    rows = {r["pair_id"]: r for r in _run(monkeypatch, out, tmp_path / "j.csv")}
+    assert rows["001"]["front_detected"] == "True"
+    assert rows["001"]["back_detected"] == "False"
+    assert rows["001"]["detected_any"] == "True"
+
+
+def test_depth_bucket_read_from_metric_path(tmp_path, monkeypatch):
+    # бакет глубины лежит в metric.depth_bucket, не в defect.depth.bucket —
+    # иначе колонка пустая даже при --depth (ревью 2026-07-05).
+    out = tmp_path / "outputs"
+    _report(out, "001", "ok", "ok", potholes=(0.8, 0.6),
+            depth_buckets=("shallow", "deep"))
+    rows = {r["pair_id"]: r for r in _run(monkeypatch, out, tmp_path / "j.csv")}
+    assert rows["001"]["depth_buckets"] == "deep shallow"
 
 
 def test_scene_metrics_dedupe_pairs_of_one_scene(tmp_path, monkeypatch, capsys):

@@ -65,6 +65,14 @@ def _load_journal(path: Path) -> dict[str, dict]:
         return {row["id"]: row for row in csv.DictReader(f) if row.get("id")}
 
 
+def _journal_row(journal: dict[str, dict], pair_id: str) -> dict:
+    """Строка журнала для pair_id. Журнал ingest'а нумерует ям zero-padded
+    (`001`), а `--pairs-dir` на «сырой» папке с папками `1`,`2` даёт pair_id
+    без нулей — пробуем оба написания, иначе gt_type/scene молча теряются
+    (ревью 2026-07-05)."""
+    return journal.get(pair_id) or journal.get(pair_id.zfill(3)) or {}
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):  # cp1251-консоль Windows
         sys.stdout.reconfigure(errors="replace")
@@ -82,18 +90,21 @@ def main() -> int:
         print(f"В {out_dir} нет *_pair.json — сначала прогони --pairs-dir.")
         return 1
     journal = _load_journal(Path(args.journal))
-    has_scenes = any((journal.get(str(r.get("pair_id", ""))) or {}).get("scene")
+    has_scenes = any(_journal_row(journal, str(r.get("pair_id", ""))).get("scene")
                      for r in reports)
 
     rows = []
     for r in reports:
         pid = str(r.get("pair_id", ""))
-        jrow = journal.get(pid) or {}
+        jrow = _journal_row(journal, pid)
         fusion = r.get("fusion") or {}
-        per_view = {Path(v.get("image", "")).stem: v
-                    for v in (fusion.get("per_view") or [])}
-        fs = per_view.get("front", {}).get("select_status", "")
-        bs = per_view.get("back", {}).get("select_status", "")
+        # per_view пайплайн всегда строит по позиции [вид A=front, вид B=back]
+        # (pipeline.analyze_pair). Берём ПО ПОЗИЦИИ, а не по стему имени: имена
+        # могут быть алиасами (1/2, a/b, before/after) — тогда стемы 'front'/'back'
+        # не совпадут и recall занизится до нуля (ревью 2026-07-05).
+        pv = fusion.get("per_view") or []
+        fs = (pv[0] if len(pv) > 0 else {}).get("select_status", "")
+        bs = (pv[1] if len(pv) > 1 else {}).get("select_status", "")
         # найдена = есть хоть одна pothole-детекция (см. док модуля);
         # отсутствие per_view в отчёте считаем «не найдено», не роняем таблицу
         front = bool(fs) and fs != "no_pothole"
@@ -101,7 +112,11 @@ def main() -> int:
         defects = r.get("defects") or []
         potholes = [d for d in defects if d.get("class") == "pothole"]
         confs = [d.get("confidence") for d in potholes if d.get("confidence") is not None]
-        buckets = sorted({(d.get("depth") or {}).get("bucket") or "-" for d in defects} - {"-"})
+        # бакет глубины пайплайн кладёт в defect["metric"]["depth_bucket"]
+        # (pipeline.py), НЕ в defect["depth"]["bucket"] — иначе колонка всегда
+        # пустая даже при --depth (ревью 2026-07-05).
+        buckets = sorted({(d.get("metric") or {}).get("depth_bucket") or "-"
+                          for d in defects} - {"-"})
         rows.append({
             "pair_id": pid,
             "scene": jrow.get("scene") or pid,

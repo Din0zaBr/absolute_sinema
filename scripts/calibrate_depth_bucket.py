@@ -18,6 +18,7 @@ src/road_defect/depth.py с пометкой v0 и датой.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -74,22 +75,49 @@ def _resolve_image(rep: dict, out_dir: Path,
     поэтому для пар (datasets/local_pairs/NNN/front.jpg) имя одно и то же у
     всех — ищем СНАЧАЛА по pair_inputs.front (там полный путь; геометрия
     pair-отчёта — вид A), затем в корне проекта, рядом с отчётами и,
-    при --images, рекурсивно в указанной папке (ревью 2026-07-03)."""
+    при --images, по папке пары NNN и рекурсивно (ревью 2026-07-03, 2026-07-05).
+
+    Отчёт без ключа `image` пропускается (None), а не роняет калибровку."""
+    img_name = rep.get("image")
+    if not img_name:
+        return None
+    pid = rep.get("pair_id")
     candidates: list[Path] = []
     pin = rep.get("pair_inputs") or {}
     if pin.get("front"):
         candidates.append(Path(pin["front"]))
-    candidates += [ROOT / rep["image"], out_dir / rep["image"]]
+    candidates += [ROOT / img_name, out_dir / img_name]
     if images_dir is not None:
-        candidates.append(images_dir / rep["image"])
+        if pid:
+            # пары: все отчёты называются front.jpg — различает только папка NNN
+            candidates.append(images_dir / str(pid) / img_name)
+        candidates.append(images_dir / img_name)
     for c in candidates:
         if c.is_file():
             return c
     if images_dir is not None:
-        hits = sorted(images_dir.rglob(rep["image"]))
+        hits = sorted(images_dir.rglob(img_name))
+        if pid:
+            # НЕ давать rglob схлопнуть все пары к первому front.jpg —
+            # держаться папки пары; нет совпадения -> честный отказ, не чужой
+            # кадр (ревью 2026-07-05).
+            hits = [h for h in hits if h.parent.name == str(pid)]
         if hits:
             return hits[0]
     return None
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    # argparse принимает и `--nulls N`, и `--nulls=N` (обе формы из docstring);
+    # ручной split("=") ронял пробельную форму IndexError'ом (ревью 2026-07-05).
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("out_dir", nargs="?", default=str(ROOT / "outputs"),
+                    help="папка с *.json отчётами")
+    ap.add_argument("--nulls", type=int, default=15,
+                    help="сколько нулевых сдвигов маски на дефект")
+    ap.add_argument("--images", default=None,
+                    help="папка с исходными фото (рекурсивный поиск)")
+    return ap
 
 
 def main() -> int:
@@ -98,15 +126,10 @@ def main() -> int:
             stream.reconfigure(errors="replace")
         except Exception:  # noqa: BLE001
             pass
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    out_dir = Path(args[0]) if args else ROOT / "outputs"
-    n_nulls = 15
-    images_dir: Path | None = None
-    for a in sys.argv[1:]:
-        if a.startswith("--nulls"):
-            n_nulls = int(a.split("=", 1)[1])
-        elif a.startswith("--images"):
-            images_dir = Path(a.split("=", 1)[1])
+    ns = _build_parser().parse_args()
+    out_dir = Path(ns.out_dir)
+    n_nulls = ns.nulls
+    images_dir = Path(ns.images) if ns.images else None
 
     # Дедуп — по РАЗРЕШЁННОМУ пути исходника, а не по rep["image"]: у пар
     # все отчёты называются front.jpg, дедуп по имени терял бы всё, кроме
@@ -119,11 +142,11 @@ def main() -> int:
             continue
         img_path = _resolve_image(rep, out_dir, images_dir)
         if img_path is None:
-            print(f"[!] нет исходника {rep['image'][:40]} — пропуск "
+            print(f"[!] нет исходника {str(rep.get('image', '?'))[:40]} — пропуск "
                   "(подскажите папку флагом --images=...)")
             continue
         key = str(img_path.resolve())
-        if key in seen_paths:             # pair-отчёт дублирует вид A
+        if key in seen_paths:             # тот же исходный файл уже посчитан
             continue
         seen_paths.add(key)
         reports.append((rep, img_path))

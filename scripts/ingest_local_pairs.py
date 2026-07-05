@@ -33,7 +33,9 @@ from pathlib import Path
 from PIL import Image
 from PIL.ExifTags import TAGS
 
-IMG_EXTS = {".jpg", ".jpeg", ".png"}
+# Канонический набор — road_defect.cli.IMG_EXT (дублируем литералом: ingest
+# намеренно не тянет тяжёлый пакет ради константы). Держать в согласии.
+IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 JOURNAL_FIELDS = [
     "id", "scene", "date", "street_or_gps", "type", "length_cm", "width_cm",
     "depth_cm", "reference_in_frame", "weather", "notes",
@@ -127,7 +129,8 @@ def main() -> int:
     pairs_root = ds_root / "local_pairs"
     gt_root = ds_root / "gt_photos"
 
-    problems: list[str] = []
+    problems: list[str] = []   # жёсткие сбои -> exit 1 (пара пропущена/битая)
+    notes: list[str] = []      # мягкие замечания, пара всё равно обработана
     rows: list[dict] = []
     copied = skipped = 0
     # Сборщик снимает группу соседних ям ОДНИМ общим кадром (front/back дублируются
@@ -146,7 +149,7 @@ def main() -> int:
                 f"{pit_dir.name}: front={len(fronts)}, back={len(backs)} — нужна ровно одна пара, пропущена")
             continue
         if not rulers:
-            problems.append(f"{pit_dir.name}: нет кадров с рулеткой (Эталоны) — пара всё равно скопирована")
+            notes.append(f"{pit_dir.name}: нет кадров с рулеткой (Эталоны) — пара всё равно скопирована")
 
         plan = [(fronts[0], pairs_root / pid / "front.jpg"),
                 (backs[0], pairs_root / pid / "back.jpg")]
@@ -186,6 +189,9 @@ def main() -> int:
     for row in rows:
         row["scene"] = pid2scene.get(row["id"], row["id"])
 
+    # корень datasets/ иначе создаётся лениво первым _copy; при прогоне, где ВСЕ
+    # пары битые (ни одного копирования), его нет — журнал упал бы FileNotFoundError
+    ds_root.mkdir(parents=True, exist_ok=True)
     journal = ds_root / "journal.csv"
     if journal.exists():
         journal = ds_root / "journal_draft.csv"
@@ -204,6 +210,10 @@ def main() -> int:
     print(f"Пары:    {pairs_root}")
     print(f"Рулетки: {gt_root}")
     print(f"Журнал:  {journal} (замеры пустые — заполнить по кадрам gt_photos)")
+    if notes:
+        print("\nЗАМЕЧАНИЯ (не влияют на код возврата):")
+        for m in notes:
+            print(f"  - {m}")
     if problems:
         print("\nПРОБЛЕМЫ:")
         for p in problems:

@@ -59,6 +59,33 @@ def test_scene_groups_by_identical_front_land_in_journal(tmp_path, monkeypatch):
     assert (ds / "gt_photos" / "003_ruler_1.jpg").exists()
 
 
+def test_missing_ruler_is_soft_warning_not_exit_failure(tmp_path, monkeypatch):
+    # Пара без кадра-рулетки копируется целиком — это мягкое замечание, а не
+    # сбой: exit code должен остаться 0 (ревью 2026-07-05).
+    src = tmp_path / "Ямки"
+    pit = src / "Яма 1"
+    _jpg(pit / "Front" / "f.jpg")
+    _jpg(pit / "Back" / "b.jpg")
+    # папки «Эталоны» нет вовсе
+    ds = tmp_path / "datasets"
+
+    assert _run(monkeypatch, src, ds) == 0
+    assert (ds / "local_pairs" / "001" / "front.jpg").exists()
+    with (ds / "journal.csv").open(encoding="utf-8-sig", newline="") as f:
+        assert [r["id"] for r in csv.DictReader(f)] == ["001"]
+
+
+def test_bad_pair_still_forces_exit_failure(tmp_path, monkeypatch):
+    # Жёсткий сбой (нет ровно одной пары) обязан валить код возврата в 1.
+    src = tmp_path / "Ямки"
+    pit = src / "Яма 1"
+    _jpg(pit / "Front" / "f1.jpg")
+    _jpg(pit / "Front" / "f2.jpg")  # две «передних» — пара не собирается
+    _jpg(pit / "Back" / "b.jpg")
+
+    assert _run(monkeypatch, src, tmp_path / "datasets") == 1
+
+
 def test_second_run_is_idempotent_and_writes_draft_not_journal(tmp_path, monkeypatch):
     src = tmp_path / "Ямки"
     _pit(src, 1)
