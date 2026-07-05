@@ -285,6 +285,40 @@ def _center_in_any_box(cx: float, cy: float, boxes) -> bool:
     return False
 
 
+def _ellipse_tilt_deg(ellipse) -> float:
+    """Наклон плоскости по аспекту эллипса: ma/MA ≈ cos(tilt). 0° = вид сверху."""
+    (_, _), (MA, ma), _ = ellipse
+    ratio = float(np.clip(min(MA, ma) / max(MA, ma), 0.05, 1.0))
+    return float(np.degrees(np.arccos(ratio)))
+
+
+def _reference_on_ground_plane(ellipse, frame_h: int, tilt_deg: float,
+                               cfg: config.InferenceConfig) -> tuple[bool, str]:
+    """Диск-эталон (люк) обязан лежать на дорожной плоскости — в НИЖНЕЙ части
+    кадра. Круглый эллипс ВЫСОКО в кадре физически не может быть люком на земле:
+    далёкий люк у горизонта виден под скользящим углом и был бы сильно сплюснут
+    (высокий наклон), а near-круглый отклик наверху — это вертикальная
+    поверхность (знак/баннер/стена).
+
+    Прецедент (цикл 8): круг на баннере забора прошёл Hough+контур и дал ложный
+    масштаб — центр на 12% высоты кадра при наклоне 44.9°. Гейтим пересечение
+    «верх кадра И слишком кругло», а не одну позицию: сплюснутый люк у горизонта
+    (верх кадра, но высокий наклон) — валиден и проходит.
+
+    Возвращает (на_плоскости, причина_отказа)."""
+    (_, cy), _, _ = ellipse
+    cy_frac = (cy / frame_h) if frame_h else 1.0
+    if (cy_frac < cfg.manhole_horizon_frac
+            and tilt_deg < cfg.manhole_min_grazing_tilt_deg):
+        return False, (
+            f"Кандидат-люк отклонён: центр в верхних {cy_frac * 100:.0f}% кадра "
+            f"и слишком круглый (наклон {tilt_deg:.0f}° < "
+            f"{cfg.manhole_min_grazing_tilt_deg:.0f}°) — это вертикальная "
+            "поверхность (знак/баннер/стена), а не диск-люк на дороге; "
+            "масштаб не выдан.")
+    return True, ""
+
+
 def scale_from_manhole(image_bgr: np.ndarray,
                        known_mm: float = config.GOST3634_COVER_OUTER_MM,
                        cfg: config.InferenceConfig = config.DEFAULT_INFERENCE,
@@ -315,12 +349,22 @@ def scale_from_manhole(image_bgr: np.ndarray,
     # контур подтверждён эллипсом. Раньше проверялся ровно один «крупнейший»
     # круг — на реальных фото это был фантом из текстуры асфальта, и настоящий
     # люк не рассматривался вовсе.
+    # Гейт дорожной плоскости применяется ВНУТРИ перебора: отклонённый кандидат
+    # (вертикальная поверхность) пропускается, и проверяется СЛЕДУЮЩИЙ — иначе
+    # ложный баннер-круг с сильнейшим откликом Hough закрыл бы путь настоящему
+    # люку-послабее в том же кадре (ревью 2026-07-05).
     circle = ellipse = method = None
+    gate_reason = ""   # причина отказа гейта, если ВСЕ кандидаты вертикальные
     for cand in candidates:
         if _center_in_any_box(cand[0], cand[1], exclude_boxes):
             continue
         e = fit_manhole_ellipse(image_bgr, cand)
         if e is not None and _ellipse_confirms_circle(e, cand):
+            on_plane, reason = _reference_on_ground_plane(
+                e, image_bgr.shape[0], _ellipse_tilt_deg(e), cfg)
+            if not on_plane:
+                gate_reason = reason
+                continue
             circle, ellipse, method = cand, e, "hough_circle+ellipse_fit"
             break
 
@@ -329,14 +373,22 @@ def scale_from_manhole(image_bgr: np.ndarray,
         for e in detect_manhole_ellipses(image_bgr, cfg):
             if _center_in_any_box(e[0][0], e[0][1], exclude_boxes):
                 continue
+            on_plane, reason = _reference_on_ground_plane(
+                e, image_bgr.shape[0], _ellipse_tilt_deg(e), cfg)
+            if not on_plane:
+                gate_reason = reason
+                continue
             ellipse, method = e, "dark_blob_ellipse"
             break
 
     if ellipse is None:
         # Ничего не подтверждено — масштаб не выдаём: ложный эталон тихо
-        # исказил бы все см и вердикт ГОСТ.
+        # исказил бы все см и вердикт ГОСТ. Причина гейта плоскости (если она
+        # отсеяла кандидатов) информативнее общего «не подтверждён».
         blob_part = " и поиском тёмных эллипсов" if allow_blob_reference else ""
-        if candidates:
+        if gate_reason:
+            note = gate_reason
+        elif candidates:
             note = (f"Кандидатов-кругов: {len(candidates)}, но люк не "
                     f"подтверждён контуром{blob_part} "
                     "(возможно колесо/яма/заплатка) — масштаб не выдан.")
@@ -350,9 +402,8 @@ def scale_from_manhole(image_bgr: np.ndarray,
     # Большая ось эллипса — истинный диаметр круга в плоскости дороги.
     diameter_px = max(MA, ma)
     mm_per_px = known_mm / diameter_px
+    tilt_deg = _ellipse_tilt_deg(ellipse)
 
-    ratio = float(np.clip(min(MA, ma) / max(MA, ma), 0.05, 1.0))
-    tilt_deg = float(np.degrees(np.arccos(ratio)))
     if tilt_deg < 15:
         confidence, err = "high", 12.0
     elif tilt_deg > 40:

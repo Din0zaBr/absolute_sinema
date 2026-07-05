@@ -53,6 +53,61 @@ def test_scale_from_manhole_synthetic():
     assert ref.circle_px is not None and ref.ellipse_px is not None
 
 
+def test_ground_plane_gate_rejects_round_high_in_frame():
+    # Круглый эталон в верхней части кадра — вертикальная поверхность
+    # (баннер/знак), а не люк на дороге (ложный масштаб 047/048, цикл 8).
+    cfg = config.DEFAULT_INFERENCE
+    ok, reason = scale_mod._reference_on_ground_plane(
+        ((2000, 200), (400, 400), 0.0), frame_h=3000, tilt_deg=2.0, cfg=cfg)
+    assert ok is False and "вертикальн" in reason
+
+
+def test_ground_plane_gate_keeps_foreshortened_high_in_frame():
+    # Высоко, но СИЛЬНО сплюснут — далёкий люк у горизонта под скользящим
+    # углом: валиден, гейтом не режется (иначе теряли бы настоящие эталоны).
+    cfg = config.DEFAULT_INFERENCE
+    ok, reason = scale_mod._reference_on_ground_plane(
+        ((2000, 200), (400, 120), 0.0), frame_h=3000, tilt_deg=72.0, cfg=cfg)
+    assert ok is True and reason == ""
+
+
+def test_ground_plane_gate_keeps_round_low_in_frame():
+    # Круглый, но НИЗКО в кадре — люк под ногами (вид близкий к надиру): валиден.
+    cfg = config.DEFAULT_INFERENCE
+    ok, _ = scale_mod._reference_on_ground_plane(
+        ((2000, 2400), (400, 400), 0.0), frame_h=3000, tilt_deg=2.0, cfg=cfg)
+    assert ok is True
+
+
+def test_scale_from_manhole_rejects_round_disc_high_in_frame():
+    # Сквозной путь: круглый диск в верхних 23% кадра отклоняется ИМЕННО гейтом
+    # плоскости (а не «не найден») — проверяем по тексту причины.
+    img = _synthetic_manhole(center=(2000, 700), r=500)
+    ref = scale_from_manhole(img)
+    assert not ref.available
+    assert "вертикальн" in ref.note
+
+
+def test_scale_from_manhole_accepts_round_disc_low_in_frame():
+    # Регрессия обратной стороны гейта: тот же диск НИЗКО в кадре — валидный люк.
+    img = _synthetic_manhole(center=(2000, 2300), r=500)
+    ref = scale_from_manhole(img)
+    assert ref.available and ref.tilt_deg is not None
+
+
+def test_gate_falls_through_to_valid_lower_candidate():
+    # Гейт применяется ВНУТРИ перебора: верхний круглый диск (вертикальная
+    # поверхность) отсеивается, а настоящий люк ниже в кадре всё равно находится
+    # — иначе сильный ложный кандидат закрыл бы путь валидному (ревью 2026-07-05).
+    img = np.full((3000, 4000, 3), 128, np.uint8)
+    cv2.circle(img, (2000, 700), 500, (40, 40, 40), -1)    # верхний: будет отсеян
+    cv2.circle(img, (2000, 2300), 500, (40, 40, 40), -1)   # нижний: валидный люк
+    ref = scale_from_manhole(img)
+    assert ref.available
+    (_, cy), _, _ = ref.ellipse_px
+    assert cy > 1500   # выбран НИЖНИЙ диск, не отсеянный верхний
+
+
 def _synthetic_tilted_manhole(size=(3000, 4000), center=(2000, 1500),
                               semi_axes=(600, 300)):
     """Косой вид: люк сплюснут перспективой в эллипс (здесь 2:1, наклон 60°)."""
