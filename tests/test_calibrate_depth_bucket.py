@@ -74,6 +74,16 @@ def test_pair_report_does_not_resolve_to_stray_root_frame(tmp_path):
         {"image": "front.jpg", "pair_id": "002"}, tmp_path / "out", images) is None
 
 
+def test_ambiguous_frame_in_foreign_folder_is_skipped(tmp_path):
+    # одиночный front.jpg в ЧУЖОЙ подпапке (не совпал по pid) — чужой кадр,
+    # честный отказ: ложная калибровка хуже пропуска (ревью 2026-07-05).
+    images = tmp_path / "root"
+    (images / "a").mkdir(parents=True)
+    (images / "a" / "front.jpg").write_bytes(b"\xff\xd8a")
+    assert cal._resolve_image({"image": "front.jpg", "pair_id": "001"},
+                              tmp_path / "out", images) is None
+
+
 def test_pair_id_zero_pad_tolerance_in_rglob(tmp_path):
     # «сырой» pair_id '1' против zero-padded папки '001' — разрешается (ревью 2026-07-05)
     images = tmp_path / "local_pairs"

@@ -112,6 +112,18 @@ id,scene,date,street_or_gps,type,length_cm,width_cm,depth_cm,reference_in_frame,
   потом отбирается набор для «золотой» валидации масштаба.
 - Заполняй на месте, не «вечером по памяти».
 
+Если замеры не записаны на месте и восстанавливаются по кадрам с рулеткой —
+помогает `scripts/build_measure_form.py`: собирает автономную HTML-страницу, где
+на каждую яму её кадры рулетки показаны крупно рядом с полями
+length/width/depth/reference (предзаполнены из журнала), а кнопка «Скачать
+journal.csv» отдаёт готовый журнал с тем же порядком колонок и utf-8-sig.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_measure_form.py
+# открыть outputs_measure\measure_form.html, заполнить, «Скачать journal.csv»,
+# заменить им datasets\journal.csv
+```
+
 ## 5. Объёмы и приоритеты
 
 | Этап | Что | Сколько | Что разблокирует |

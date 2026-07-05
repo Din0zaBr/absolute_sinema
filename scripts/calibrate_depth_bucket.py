@@ -102,8 +102,11 @@ def _resolve_image(rep: dict, out_dir: Path,
         hits = sorted(images_dir.rglob(img_name))
         if pid:
             # НЕ давать rglob схлопнуть все пары к первому front.jpg — держаться
-            # папки пары; терпим и «сырой», и zero-padded id (как pair_quality),
-            # нет совпадения -> честный отказ, не чужой кадр (ревью 2026-07-05).
+            # папки пары; терпим и «сырой», и zero-padded id (как pair_quality).
+            # Нет совпадения по папке -> честный отказ, а НЕ единственный/первый
+            # хит: для пары (все кадры зовутся front.jpg) одиночный кадр в чужой
+            # папке — чужой, а ложная калибровка хуже пропуска. Для плоской
+            # --images указывать структуру NNN/ (ревью 2026-07-05, осознанно).
             pid_names = {str(pid), str(pid).zfill(3)}
             hits = [h for h in hits if h.parent.name in pid_names]
         if hits:
