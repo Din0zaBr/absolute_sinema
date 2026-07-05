@@ -25,6 +25,11 @@ datasets/
 *_brief_tail.txt
 .pytest_cache/
 _repro_*.py
+*.crdownload
+outputs_pairs_run.log
+
+# сырые фото выездов (раскладываются в datasets/ скриптом ingest_local_pairs.py)
+Проэкт/
 
 # локальные артефакты (конфиг Obsidian-вольта, бинарные отчёты)
 .obsidian/
