@@ -194,7 +194,7 @@ datasets/local_rf_yolo/
 
 ```yaml
 # datasets/local_rf_yolo/data.yaml
-path: C:/Users/Kordon/doroga_govna/datasets/local_rf_yolo
+path: C:/Users/Kordon/doroga/datasets/local_rf_yolo
 train: images/train
 val: images/val
 names:
@@ -203,6 +203,16 @@ names:
   2: D20
   3: D40
   4: Repair
+```
+
+Всю эту раскладку (кадры сцен в `images/{train,val}`, ПУСТЫЕ `labels/**/*.txt`
+под разметку и `data.yaml`) генерирует `scripts/prepare_local_finetune.py` —
+руками раскладывать не нужно, только разметить боксы:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\prepare_local_finetune.py
+# 48 пар -> уникальные сцены (дедуп по кадру front), сплит по сценам,
+# затем разметить боксы в images\**\*.jpg -> labels\**\*.txt
 ```
 
 ### Train/val: делить по ЛОКАЦИЯМ, не по кадрам
@@ -215,10 +225,16 @@ names:
 остальное в train. Случайное перемешивание кадров даст фиктивно высокий
 mAP — та же ловушка, что train-contamination Czech (STATUS, цикл 3).
 
+`prepare_local_finetune.py` пока делит по СЦЕНАМ (вся сцена в один сплит —
+базовая защита от утечки; ~15% в val, детерминированно). Деления по улицам он
+НЕ делает: для него нужен разбор GPS из журнала (`street_or_gps`, §4). Если
+набор с нескольких улиц — после генерации имеет смысл вручную перекинуть кадры
+одной-двух улиц целиком в `val`, чтобы срез был честнее.
+
 ## 7. Дообучение и проверка
 
 ```powershell
-cd C:\Users\Kordon\doroga_govna
+cd C:\Users\Kordon\doroga
 
 # дообучение от чекпоинта rezzzq (freeze-слои по умолчанию)
 .\.venv\Scripts\python.exe scripts\finetune_rdd2022.py --data datasets\local_rf_yolo\data.yaml --epochs 50 --imgsz 1024

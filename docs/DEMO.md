@@ -9,7 +9,7 @@
 ## Подготовка (за 10 минут до показа)
 
 ```powershell
-cd C:\Users\Kordon\doroga_govna
+cd C:\Users\Kordon\doroga
 .\.venv\Scripts\python.exe -m pytest -q          # убедиться: все тесты зелёные
 .\.venv\Scripts\python.exe scripts\smoke_test.py # прогреть модели (кэш весов)
 ```
