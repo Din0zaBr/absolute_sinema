@@ -151,20 +151,29 @@ def main() -> int:
         if not rulers:
             notes.append(f"{pit_dir.name}: нет кадров с рулеткой (Эталоны) — пара всё равно скопирована")
 
-        plan = [(fronts[0], pairs_root / pid / "front.jpg"),
-                (backs[0], pairs_root / pid / "back.jpg")]
-        plan += [(r, gt_root / f"{pid}_ruler_{k}.jpg") for k, r in enumerate(rulers, 1)]
-
-        bad = False
-        for src, _ in plan:
+        # Битый front/back делает пару непригодной — жёсткий пропуск. Битая
+        # РУЛЕТКА (некритичный gt-кадр) не должна ронять валидную пару: роняем
+        # только эту рулетку, пара копируется (ревью 2026-07-05).
+        pair_plan = [(fronts[0], pairs_root / pid / "front.jpg"),
+                     (backs[0], pairs_root / pid / "back.jpg")]
+        pair_bad = False
+        for src, _ in pair_plan:
             issue = _verify_readable(src)
             if issue:
-                problems.append(f"{src}: не читается ({issue})")
-                bad = True
-        if bad:
+                problems.append(f"{src}: не читается ({issue}) — пара пропущена")
+                pair_bad = True
+        if pair_bad:
             continue
 
-        for src, dst in plan:
+        good_rulers: list[tuple[Path, Path]] = []
+        for k, r in enumerate(rulers, 1):
+            issue = _verify_readable(r)
+            if issue:
+                notes.append(f"{r}: рулетка не читается ({issue}) — пропущена, пара скопирована")
+            else:
+                good_rulers.append((r, gt_root / f"{pid}_ruler_{k}.jpg"))
+
+        for src, dst in pair_plan + good_rulers:
             if _copy(src, dst, args.force) == "copy":
                 copied += 1
             else:
@@ -182,7 +191,7 @@ def main() -> int:
             "type": args.defect_type,
             "length_cm": "", "width_cm": "", "depth_cm": "",
             "reference_in_frame": "", "weather": "",
-            "notes": f"gt_photos: {len(rulers)} кадр(а) с рулеткой",
+            "notes": f"gt_photos: {len(good_rulers)} кадр(а) с рулеткой",
         })
 
     pid2scene = {pid: pids[0] for pids in front_md5s.values() for pid in pids}

@@ -112,6 +112,26 @@ def test_depth_bucket_read_from_metric_path(tmp_path, monkeypatch):
     assert rows["001"]["depth_buckets"] == "deep shallow"
 
 
+def test_null_select_status_does_not_crash_table(tmp_path, monkeypatch):
+    # per_view с явным null в select_status раньше ронял таблицу на
+    # `"ambiguous" in None`; теперь трактуется как «не найдено» (ревью 2026-07-05).
+    out = tmp_path / "outputs"
+    out.mkdir(parents=True)
+    report = {
+        "pair_id": "001", "mode": "two_view_unmatched",
+        "scale": {"available": False}, "defects": [],
+        "fusion": {"matched": False, "fused": False, "per_view": [
+            {"image": "front.jpg", "select_status": None},
+            {"image": "back.jpg", "select_status": None},
+        ]},
+    }
+    (out / "001__front__back_pair.json").write_text(
+        json.dumps(report), encoding="utf-8")
+
+    rows = {r["pair_id"]: r for r in _run(monkeypatch, out, tmp_path / "j.csv")}
+    assert rows["001"]["detected_any"] == "False"
+
+
 def test_scene_metrics_dedupe_pairs_of_one_scene(tmp_path, monkeypatch, capsys):
     out = tmp_path / "outputs"
     # сцена 001: две пары с одинаковым результатом (общий кадр)

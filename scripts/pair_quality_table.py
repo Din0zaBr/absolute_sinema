@@ -103,8 +103,10 @@ def main() -> int:
         # могут быть алиасами (1/2, a/b, before/after) — тогда стемы 'front'/'back'
         # не совпадут и recall занизится до нуля (ревью 2026-07-05).
         pv = fusion.get("per_view") or []
-        fs = (pv[0] if len(pv) > 0 else {}).get("select_status", "")
-        bs = (pv[1] if len(pv) > 1 else {}).get("select_status", "")
+        # `or ""` глушит и отсутствие ключа, и явный null в отчёте: иначе None
+        # ронял бы таблицу на `"ambiguous" in None` ниже (ревью 2026-07-05).
+        fs = (pv[0] if len(pv) > 0 else {}).get("select_status") or ""
+        bs = (pv[1] if len(pv) > 1 else {}).get("select_status") or ""
         # найдена = есть хоть одна pothole-детекция (см. док модуля);
         # отсутствие per_view в отчёте считаем «не найдено», не роняем таблицу
         front = bool(fs) and fs != "no_pothole"

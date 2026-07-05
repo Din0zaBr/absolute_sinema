@@ -89,19 +89,23 @@ def _resolve_image(rep: dict, out_dir: Path,
     candidates += [ROOT / img_name, out_dir / img_name]
     if images_dir is not None:
         if pid:
-            # пары: все отчёты называются front.jpg — различает только папка NNN
+            # пары: все отчёты называются front.jpg — различает только папка NNN.
+            # Плоский images_dir/front.jpg НЕ добавляем для пары: он схватил бы
+            # чужой кадр (случайный front.jpg в корне) — ревью 2026-07-05.
             candidates.append(images_dir / str(pid) / img_name)
-        candidates.append(images_dir / img_name)
+        else:
+            candidates.append(images_dir / img_name)
     for c in candidates:
         if c.is_file():
             return c
     if images_dir is not None:
         hits = sorted(images_dir.rglob(img_name))
         if pid:
-            # НЕ давать rglob схлопнуть все пары к первому front.jpg —
-            # держаться папки пары; нет совпадения -> честный отказ, не чужой
-            # кадр (ревью 2026-07-05).
-            hits = [h for h in hits if h.parent.name == str(pid)]
+            # НЕ давать rglob схлопнуть все пары к первому front.jpg — держаться
+            # папки пары; терпим и «сырой», и zero-padded id (как pair_quality),
+            # нет совпадения -> честный отказ, не чужой кадр (ревью 2026-07-05).
+            pid_names = {str(pid), str(pid).zfill(3)}
+            hits = [h for h in hits if h.parent.name in pid_names]
         if hits:
             return hits[0]
     return None
@@ -142,8 +146,12 @@ def main() -> int:
             continue
         img_path = _resolve_image(rep, out_dir, images_dir)
         if img_path is None:
-            print(f"[!] нет исходника {str(rep.get('image', '?'))[:40]} — пропуск "
-                  "(подскажите папку флагом --images=...)")
+            if not rep.get("image"):
+                print(f"[!] отчёт {p.name} без ключа image — пропуск "
+                      "(повреждён/старый формат, флаг --images тут не поможет)")
+            else:
+                print(f"[!] нет исходника {str(rep['image'])[:40]} — пропуск "
+                      "(подскажите папку флагом --images=...)")
             continue
         key = str(img_path.resolve())
         if key in seen_paths:             # тот же исходный файл уже посчитан

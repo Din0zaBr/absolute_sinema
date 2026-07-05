@@ -63,6 +63,27 @@ def test_report_without_image_key_is_skipped_not_crash(tmp_path):
     assert cal._resolve_image({"pair_id": "001"}, tmp_path, tmp_path) is None
 
 
+def test_pair_report_does_not_resolve_to_stray_root_frame(tmp_path):
+    # Плоский images_dir/front.jpg НЕ должен схватываться парой (pid задан):
+    # это был бы чужой кадр (ревью 2026-07-05).
+    images = tmp_path / "imgs"
+    images.mkdir()
+    (images / "front.jpg").write_bytes(b"\xff\xd8stray")  # чужой корневой кадр
+    # папки пары 002 нет -> честный отказ, а не stray
+    assert cal._resolve_image(
+        {"image": "front.jpg", "pair_id": "002"}, tmp_path / "out", images) is None
+
+
+def test_pair_id_zero_pad_tolerance_in_rglob(tmp_path):
+    # «сырой» pair_id '1' против zero-padded папки '001' — разрешается (ревью 2026-07-05)
+    images = tmp_path / "local_pairs"
+    (images / "001").mkdir(parents=True)
+    (images / "001" / "front.jpg").write_bytes(b"\xff\xd8fake")
+    got = cal._resolve_image({"image": "front.jpg", "pair_id": "1"},
+                             tmp_path / "out", images)
+    assert got == images / "001" / "front.jpg"
+
+
 @pytest.mark.parametrize("argv,exp_nulls,exp_images", [
     (["outs", "--nulls", "5", "--images", "imgs"], 5, "imgs"),   # пробельная форма
     (["outs", "--nulls=7", "--images=imgs"], 7, "imgs"),          # =-форма

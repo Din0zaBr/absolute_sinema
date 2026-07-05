@@ -75,6 +75,39 @@ def test_missing_ruler_is_soft_warning_not_exit_failure(tmp_path, monkeypatch):
         assert [r["id"] for r in csv.DictReader(f)] == ["001"]
 
 
+def test_corrupt_ruler_does_not_lose_valid_pair(tmp_path, monkeypatch):
+    # Битая рулетка (некритичный gt-кадр) не должна ронять валидную пару:
+    # пара копируется, рулетка пропускается, exit 0 (ревью 2026-07-05).
+    src = tmp_path / "Ямки"
+    pit = src / "Яма 1"
+    _jpg(pit / "Front" / "f.jpg")
+    _jpg(pit / "Back" / "b.jpg")
+    (pit / "Эталоны").mkdir(parents=True)
+    (pit / "Эталоны" / "r.jpg").write_bytes(b"not a jpeg")  # битый файл
+    ds = tmp_path / "datasets"
+
+    assert _run(monkeypatch, src, ds) == 0
+    assert (ds / "local_pairs" / "001" / "front.jpg").exists()
+    assert (ds / "local_pairs" / "001" / "back.jpg").exists()
+    assert not (ds / "gt_photos" / "001_ruler_1.jpg").exists()  # битая рулетка не скопирована
+    with (ds / "journal.csv").open(encoding="utf-8-sig", newline="") as f:
+        rows = {r["id"]: r for r in csv.DictReader(f)}
+    assert rows["001"]["notes"].startswith("gt_photos: 0")  # честный счёт рулеток
+
+
+def test_corrupt_front_photo_skips_whole_pit(tmp_path, monkeypatch):
+    # Битый front — пара непригодна, жёсткий пропуск и exit 1.
+    src = tmp_path / "Ямки"
+    pit = src / "Яма 1"
+    (pit / "Front").mkdir(parents=True)
+    (pit / "Front" / "f.jpg").write_bytes(b"not a jpeg")
+    _jpg(pit / "Back" / "b.jpg")
+    ds = tmp_path / "datasets"
+
+    assert _run(monkeypatch, src, ds) == 1
+    assert not (ds / "local_pairs" / "001").exists()
+
+
 def test_bad_pair_still_forces_exit_failure(tmp_path, monkeypatch):
     # Жёсткий сбой (нет ровно одной пары) обязан валить код возврата в 1.
     src = tmp_path / "Ямки"
