@@ -152,6 +152,20 @@ def test_page_scopes_storage_by_set_and_persists_proposal_decisions(tmp_path, mo
     assert "proposals_resolved" in html               # персист решений в state
 
 
+def test_page_has_zoom_and_pan_controls(tmp_path, monkeypatch):
+    # Зум/панорама: колесо к курсору, средняя кнопка/Space, сброс '0';
+    # рамки не «жирнеют» (толщина линий делится на z).
+    d = _eval_dir(tmp_path)
+    out = tmp_path / "a.html"
+    assert _run(tmp_path, monkeypatch, d, out) == 0
+    html = out.read_text(encoding="utf-8")
+    assert "addEventListener('wheel'" in html
+    assert "clampView" in html and "evtDisp" in html
+    assert "spaceDown" in html
+    assert "width / view.z" in html                   # постоянная толщина рамок
+    assert "зум: колесо" in html                      # подсказка в футере
+
+
 def test_manifest_contract_with_make_eval_set(tmp_path, monkeypatch):
     # Кросс-контракт: manifest, который пишет make_eval_set, читается
     # load_manifest разметчика (колонка frame_id, кодировка utf-8-sig).

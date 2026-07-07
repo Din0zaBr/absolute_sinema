@@ -157,6 +157,8 @@ def build_page(frames: list[dict], initial: dict | None, proposals: dict) -> str
     <span>рисовать: тянуть мышью</span><span>выбрать: клик</span>
     <span>двигать: тянуть выбранный</span><span>удалить/отклонить: Del</span>
     <span>принять предложение: Enter</span><span>кадры: ←/→ (PgUp/PgDn)</span>
+    <span>зум: колесо</span><span>панорама: средняя кнопка или Space+тянуть</span>
+    <span>сброс вида: 0</span>
     <span>серый пунктир = предложение движка, в экспорт НЕ идёт, пока не принято</span>
   </div>
 </div>
@@ -201,6 +203,18 @@ let cur = 0, sel = null, drag = null;   // sel={kind,index}
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const IMG = new Image();
 
+// --- зум/панорама: view-трансформация поверх дисплейных координат -----------
+let view = {z: 1, ox: 0, oy: 0};        // canvas = disp*z + o
+let spaceDown = false;                  // Space+тянуть = панорама
+function clampView() {
+  view.z = Math.min(8, Math.max(1, view.z));
+  view.ox = Math.min(0, Math.max(cv.width * (1 - view.z), view.ox));
+  view.oy = Math.min(0, Math.max(cv.height * (1 - view.z), view.oy));
+}
+function evtDisp(e) {                   // координаты мыши -> дисплейные px
+  return [(e.offsetX - view.ox) / view.z, (e.offsetY - view.oy) / view.z];
+}
+
 function frameMeta() { return DATA.frames[cur]; }
 function frameState() { return state.frames[frameMeta().id]; }
 function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); renderSide(); }
@@ -232,22 +246,29 @@ function openFrame() {
   document.getElementById('reviewed').checked = frameState().status === 'reviewed';
   IMG.onload = draw; IMG.src = f.uri;
   cv.width = f.dw; cv.height = f.dh;
+  view = {z: 1, ox: 0, oy: 0};          // новый кадр — вид сбрасывается
   renderSide(); updateBar(); draw();
 }
 function toDisp(v) { return v / frameMeta().scale; }
 function toOrig(v) { return v * frameMeta().scale; }
 function drawBox(b, color, dash, width, label) {
-  ctx.strokeStyle = color; ctx.setLineDash(dash); ctx.lineWidth = width;
+  // толщина линий/шрифт делятся на z: при зуме рамки не «жирнеют»
+  ctx.strokeStyle = color; ctx.setLineDash(dash.map(d => d / view.z));
+  ctx.lineWidth = width / view.z;
   const [x, y, w, h] = b.map(toDisp);
   ctx.strokeRect(x, y, w, h);
-  if (label) { ctx.setLineDash([]); ctx.font = '12px system-ui';
+  if (label) { ctx.setLineDash([]);
+    const fs = 12 / view.z, pad = 4 / view.z, bh = 16 / view.z;
+    ctx.font = fs + 'px system-ui';
     const tw = ctx.measureText(label).width;
-    ctx.fillStyle = color; ctx.fillRect(x, Math.max(0, y - 16), tw + 8, 16);
-    ctx.fillStyle = '#fff'; ctx.fillText(label, x + 4, Math.max(12, y - 4)); }
+    ctx.fillStyle = color; ctx.fillRect(x, Math.max(0, y - bh), tw + 2 * pad, bh);
+    ctx.fillStyle = '#fff'; ctx.fillText(label, x + pad, Math.max(fs, y - pad)); }
 }
 function draw() {
   if (!IMG.complete) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(view.z, 0, 0, view.z, view.ox, view.oy);
   ctx.drawImage(IMG, 0, 0, cv.width, cv.height);
   const st = frameState();
   (proposals[frameMeta().id] || []).forEach((p, i) => {
@@ -324,25 +345,48 @@ function deleteSel() {
 
 // --- мышь ----------------------------------------------------------------------
 cv.addEventListener('mousedown', (e) => {
-  const ox = toOrig(e.offsetX), oy = toOrig(e.offsetY);
-  const h = hit(ox, oy);
+  if (e.button === 1 || spaceDown) {    // панорама: средняя кнопка / Space
+    e.preventDefault();
+    drag = {kind:'pan', sx: e.offsetX, sy: e.offsetY,
+            ox0: view.ox, oy0: view.oy};
+    return;
+  }
+  if (e.button !== 0) return;
+  const [dx, dy] = evtDisp(e);
+  const px = toOrig(dx), py = toOrig(dy);
+  const h = hit(px, py);
   if (h && sel && h.kind === sel.kind && h.index === sel.index && h.kind !== 'proposal') {
-    const b = selBox(); drag = {kind:'move', dx: ox - b[0], dy: oy - b[1]};
+    const b = selBox(); drag = {kind:'move', dx: px - b[0], dy: py - b[1]};
   } else if (h) { sel = h; drag = null; updateBar(); draw(); }
-  else { sel = null; drag = {kind:'new', x0: ox, y0: oy, bbox:[ox, oy, 0, 0]};
+  else { sel = null; drag = {kind:'new', x0: px, y0: py, bbox:[px, py, 0, 0]};
          updateBar(); draw(); }
 });
 cv.addEventListener('mousemove', (e) => {
   if (!drag) return;
-  const ox = toOrig(e.offsetX), oy = toOrig(e.offsetY);
+  if (drag.kind === 'pan') {
+    view.ox = drag.ox0 + (e.offsetX - drag.sx);
+    view.oy = drag.oy0 + (e.offsetY - drag.sy);
+    clampView(); draw(); return;
+  }
+  const [dx, dy] = evtDisp(e);
+  const px = toOrig(dx), py = toOrig(dy);
   if (drag.kind === 'new') {
-    drag.bbox = [Math.min(drag.x0, ox), Math.min(drag.y0, oy),
-                 Math.abs(ox - drag.x0), Math.abs(oy - drag.y0)];
+    drag.bbox = [Math.min(drag.x0, px), Math.min(drag.y0, py),
+                 Math.abs(px - drag.x0), Math.abs(py - drag.y0)];
   } else {
-    const b = selBox(); b[0] = ox - drag.dx; b[1] = oy - drag.dy;
+    const b = selBox(); b[0] = px - drag.dx; b[1] = py - drag.dy;
   }
   draw();
 });
+cv.addEventListener('wheel', (e) => {   // зум к курсору
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+  const nz = Math.min(8, Math.max(1, view.z * factor));
+  view.ox = e.offsetX - (e.offsetX - view.ox) * (nz / view.z);
+  view.oy = e.offsetY - (e.offsetY - view.oy) * (nz / view.z);
+  view.z = nz;
+  clampView(); draw();
+}, {passive: false});
 window.addEventListener('mouseup', () => {
   if (!drag) return;
   if (drag.kind === 'new') {
@@ -366,8 +410,13 @@ window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   if (e.key === 'Delete' || e.key === 'Backspace') { deleteSel(); e.preventDefault(); }
   if (e.key === 'Enter') { acceptProposal(); e.preventDefault(); }
+  if (e.key === ' ') { spaceDown = true; cv.style.cursor = 'grab'; e.preventDefault(); }
+  if (e.key === '0') { view = {z:1, ox:0, oy:0}; draw(); }
   if (e.key === 'ArrowLeft' || e.key === 'PageUp') document.getElementById('prev').click();
   if (e.key === 'ArrowRight' || e.key === 'PageDown') document.getElementById('next').click();
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === ' ') { spaceDown = false; cv.style.cursor = 'crosshair'; }
 });
 document.getElementById('prev').onclick = () => {
   cur = (cur - 1 + DATA.frames.length) % DATA.frames.length; sel = null; openFrame(); };
@@ -424,8 +473,9 @@ def main() -> int:
     ap.add_argument("--out", default="outputs_eval/annotator.html")
     ap.add_argument("--proposals", default=None,
                     help="папка отчётов движка (*.json) для предзаполнения")
-    ap.add_argument("--max-px", type=int, default=1600,
-                    help="макс. сторона встроенного кадра")
+    ap.add_argument("--max-px", type=int, default=2048,
+                    help="макс. сторона встроенного кадра (2048 — чтобы зум "
+                         "колесом не упирался в мыло; страница тяжелее)")
     ap.add_argument("--quality", type=int, default=78)
     args = ap.parse_args()
 

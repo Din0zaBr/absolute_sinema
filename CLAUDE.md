@@ -21,7 +21,7 @@
 ```powershell
 $env:PYTHONPATH="src"
 .\.venv\Scripts\python.exe -m road_defect.cli --input <папка> --output <папка> [--depth --ensemble --pair]
-.\.venv\Scripts\python.exe -m pytest -q          # 258 тестов, держать зелёными
+.\.venv\Scripts\python.exe -m pytest -q          # 259 тестов, держать зелёными
 .\.venv\Scripts\python.exe scripts\smoke_test.py # прогреть модели (кэш весов)
 ```
 Пороги/константы — только через `config.py` (`InferenceConfig`), не хардкодить.
@@ -72,7 +72,8 @@ $env:PYTHONPATH="src"
 - Архитектура/решения — `docs/PROJECT.md`. Статус/история циклов — `docs/STATUS.md`.
 - Датасет/разметка — `docs/DATASET.md`. Сценарий показа — `docs/DEMO.md`.
 - Работа с парами — `docs/PAIR_WORKFLOW.md`.
-- Замер качества детекции (eval-набор, разметка, метрики) — `docs/EVAL.md`.
+- Замер качества детекции (eval-набор, разметка, метрики) — `docs/EVAL.md`;
+  пошаговая инструкция разметчику-новичку — `docs/ANNOTATION_GUIDE.md`.
 - **Backlog улучшений детекции и разбор ложных срабатываний — `docs/IMPROVEMENTS.md`.**
 - **Аудит багов/недочётов + план фиксов и алгоритм работы — `docs/HANDOFF_FABLE.md`**
   (временный: вычёркивать пункты по мере исправления).
