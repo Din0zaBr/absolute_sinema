@@ -59,6 +59,8 @@ def describe_mask(mask: np.ndarray) -> ShapeDescriptors | None:
     import cv2
     from skimage.measure import label, regionprops
 
+    if mask is None:
+        return None
     binary = np.asarray(mask) > 0
     if not binary.any():
         return None

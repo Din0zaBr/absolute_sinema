@@ -5,9 +5,27 @@ JSON стабилен и потребляется подсистемами 2–5
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
+
+
+def _finite_or_none(obj):
+    """Рекурсивно заменить не-конечные float (NaN/Inf) на None.
+
+    json.dumps(allow_nan=True) по умолчанию пишет NaN/Infinity — это невалидный
+    JSON, который роняет строгие парсеры подсистем 2–5; None («неизвестно») —
+    честнее и валиднее выдуманного числа (аудит 2026-07-07)."""
+    if isinstance(obj, np.floating):
+        obj = float(obj)
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _finite_or_none(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_finite_or_none(v) for v in obj]
+    return obj
 
 
 # Цвета классов (BGR) для overlay.
@@ -22,7 +40,12 @@ _DEFAULT_COLOR = (0, 255, 0)
 
 
 def mask_to_rle(mask: np.ndarray) -> dict:
-    """COCO-стиль RLE (column-major). counts начинается с числа нулей."""
+    """COCO-стиль RLE (column-major). counts начинается с числа нулей.
+
+    ВНИМАНИЕ по осям (контракт §8): mask_rle.size = [H, W] (row, col — как
+    arr.shape), тогда как report.image_size_px = [W, H] (width, height). Разные
+    порядки в одном JSON — исторический контракт; потребители подсистем 2–5
+    должны учитывать оба (валидатор scripts/validate_outputs.py это проверяет)."""
     arr = np.asarray(mask).astype(np.uint8)
     m = arr.ravel(order="F")
     if m.size == 0:
@@ -61,7 +84,10 @@ def build_report(image_name: str, image_size_px, mode: str,
 def save_report(report: dict, out_dir: Path, stem: str) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{stem}.json"
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(
+        json.dumps(_finite_or_none(report), ensure_ascii=False, indent=2,
+                   allow_nan=False),
+        encoding="utf-8")
     return path
 
 

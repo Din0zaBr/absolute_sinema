@@ -107,6 +107,11 @@ def _run_pair(pipe, pair, out: Path) -> int:
         if err:
             print(err, file=sys.stderr)
             return 1
+    if a.resolve() == b.resolve():
+        print("--pair: FRONT и BACK — это один и тот же файл. Нужны ДВА разных "
+              "вида одной ямы: «согласие» фото с самим собой фиктивно и ложно "
+              "повышало бы уверенность слияния (аудит 2026-07-07).", file=sys.stderr)
+        return 1
     saved = _save_pair_result(pipe, a, b, out)
     if saved is None:
         return 1

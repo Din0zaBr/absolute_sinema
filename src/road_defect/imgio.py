@@ -29,8 +29,12 @@ def write_image(path: str | Path, image: np.ndarray) -> bool:
     import cv2
 
     path = Path(path)
+    # Без суффикса кодируем в JPEG И пишем файл с .jpg — иначе формат кодирования
+    # и расширение файла расходились бы (аудит 2026-07-07).
+    if not path.suffix:
+        path = path.with_suffix(".jpg")
     try:
-        ok, buf = cv2.imencode(path.suffix if path.suffix else ".jpg", image)
+        ok, buf = cv2.imencode(path.suffix, image)
     except Exception:  # cv2.error на неподдерживаемом расширении — тоже False
         return False
     if not ok:

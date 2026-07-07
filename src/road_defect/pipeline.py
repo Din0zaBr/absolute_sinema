@@ -21,7 +21,9 @@ def _reference_label(ref) -> str:
     """Короткая подпись эталона для overlay (тип + размер + след кросс-проверки)."""
     if not ref.available:
         return "ref"
-    short = {"manhole_gost3634_cover": "manhole", "marking": "marking",
+    short = {"manhole_gost3634_cover": "manhole",
+             "manhole_gost3634_clear_opening": "manhole",
+             "marking": "marking",
              "curb_gost6665": "curb"}.get(ref.type or "", ref.type or "ref")
     km = f" {ref.known_mm:.0f}mm" if ref.known_mm else ""
     return f"{short}{km}{' +xcheck' if ref.cross_checked else ''}"

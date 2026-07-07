@@ -58,8 +58,12 @@ def check_report(path: Path, rep: dict) -> list[str]:
         if not m.get("available") and m.get("equivalent_diameter_cm") is not None:
             err(f"{tag}: размеры в см без metric.available — откуда масштаб?")
 
-        if not (0.0 <= d.get("confidence", -1) <= 1.0):
-            err(f"{tag}: confidence вне [0, 1]")
+        conf = d.get("confidence")
+        if (not isinstance(conf, (int, float)) or isinstance(conf, bool)
+                or not math.isfinite(conf) or not (0.0 <= conf <= 1.0)):
+            # null/строка/NaN дают TypeError в прямом сравнении и маскировались бы
+            # общим «не разобрался» — ловим явно (аудит 2026-07-07).
+            err(f"{tag}: confidence отсутствует или вне [0, 1]: {conf!r}")
         # Битый bbox_px — диагностика, а не KeyError валидатора (ревью
         # 2026-07-02). bool — подкласс int, NaN — float и проходит любые
         # сравнения ложью: оба класса битости ловим явно (ревью 2026-07-03).

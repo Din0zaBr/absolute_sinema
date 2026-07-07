@@ -6,9 +6,20 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, asdict
 
 from . import config
+
+
+def _exceeds(value: float | None, threshold: float) -> bool | None:
+    """value ≥ threshold, но None и не-конечное (NaN/Inf) → None (не определено).
+
+    Без гарда сравнение NaN всегда False, и опасный дефект молча стал бы «в норме»
+    вместо indeterminate — нарушение принципа честности (аудит 2026-07-07)."""
+    if value is None or not math.isfinite(value):
+        return None
+    return value >= threshold
 
 
 @dataclass
@@ -38,9 +49,9 @@ def classify(
     Дефект несоответствует норме при ВСЕХ трёх условиях:
     длина ≥ 15 см И глубина ≥ 5 см И площадь ≥ 0.06 м².
     """
-    length_exc = None if length_cm is None else length_cm >= config.GOST50597_MAX_LENGTH_CM
-    area_exc = None if area_m2 is None else area_m2 >= config.GOST50597_MAX_AREA_M2
-    depth_exc = None if depth_cm is None else depth_cm >= config.GOST50597_MAX_DEPTH_CM
+    length_exc = _exceeds(length_cm, config.GOST50597_MAX_LENGTH_CM)
+    area_exc = _exceeds(area_m2, config.GOST50597_MAX_AREA_M2)
+    depth_exc = _exceeds(depth_cm, config.GOST50597_MAX_DEPTH_CM)
 
     deadline = config.GOST50597_REPAIR_DEADLINE_DAYS.get(road_category)
 

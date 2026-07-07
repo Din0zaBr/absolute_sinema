@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,8 +14,11 @@ import numpy as np
 from . import config
 
 
-@dataclass
+@dataclass(eq=False)
 class Detection:
+    # eq=False: сравнение по идентичности. Автогенерённый __eq__ сравнивал бы поле
+    # mask (np.ndarray) и падал бы «ambiguous truth value» при ==/in/hashing разных
+    # экземпляров с масками. Нигде не сравниваем по значению (аудит 2026-07-07).
     cls_name: str                 # нормализованный класс (наш словарь) или сырое имя
     raw_label: str                # как назвала модель
     confidence: float
@@ -36,7 +40,13 @@ def _acquire_weights(cand: config.ModelCandidate) -> str | None:
             from huggingface_hub import hf_hub_download
             return hf_hub_download(repo_id=cand.repo_id, filename=cand.filename,
                                    local_dir=str(config.MODELS_DIR))
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            # Не молчим: без лога нельзя отличить отсутствие пакета/сети от опечатки
+            # в repo_id/filename или гейтинга токена — иначе деградацию до COCO
+            # не диагностировать (аудит 2026-07-07).
+            logging.getLogger(__name__).warning(
+                "Не удалось получить веса %s (%s/%s): %s",
+                cand.name, cand.repo_id, cand.filename, e)
             return None
     return None
 
@@ -53,18 +63,38 @@ def _iou_xywh(a: tuple, b: tuple) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def _containment(a: tuple, b: tuple) -> float:
+    """Доля МЕНЬШЕГО из двух боксов, попавшая в пересечение (0..1).
+
+    Высокая доля = один бокс почти целиком внутри другого (seg-бокс внутри
+    обычного — один объект), а НЕ два соседних дефекта, у которых лишь центр
+    случайно попал в чужой бокс (тогда доля мала). Оба бокса — (x, y, w, h)."""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    ix0, iy0 = max(ax, bx), max(ay, by)
+    ix1, iy1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+    smaller = min(aw * ah, bw * bh)
+    return inter / smaller if smaller > 0 else 0.0
+
+
 def merge_detections(primary: list, secondary: list,
-                     iou_thr: float = 0.5) -> list:
+                     iou_thr: float = 0.35) -> list:
     """Слить детекции второго прохода в основной список.
 
-    Вторичная детекция добавляется, только если не пересекается (IoU < порога)
-    ни с одной первичной ТОГО ЖЕ класса — основной детектор остаётся
-    авторитетом там, где оба видят дефект.
+    Вторичная детекция добавляется, только если для неё нет первичной ТОГО ЖЕ
+    класса, которая (а) пересекается по IoU ≥ порога ЛИБО (б) почти целиком
+    содержит её (containment ≥ 0.8). Порог IoU 0.35 — ниже NMS (0.45): боксы двух
+    разных семейств моделей на одной яме дают умеренный IoU. Containment по ПЛОЩАДИ
+    (а не «центр в боксе») ловит «seg-бокс внутри обычного», но НЕ склеивает два
+    соседних дефекта, у которых лишь центр попал в чужой бокс (аудит 2026-07-07,
+    уточнено по верификации). Основной детектор — авторитет там, где оба видят дефект.
     """
     merged = list(primary)
     for det in secondary:
         if any(d.cls_name == det.cls_name
-               and _iou_xywh(d.bbox_xywh, det.bbox_xywh) >= iou_thr
+               and (_iou_xywh(d.bbox_xywh, det.bbox_xywh) >= iou_thr
+                    or _containment(d.bbox_xywh, det.bbox_xywh) >= 0.8)
                for d in primary):
             continue
         merged.append(det)
@@ -124,7 +154,7 @@ class Detector:
             return  # основной уже keremberke — второй проход избыточен, не отказ
         from ultralytics import YOLO
 
-        cand = next((c for c in config.DETECTOR_CANDIDATES
+        cand = next((c for c in self._candidates
                      if c.name == "keremberke-yolov8m-pothole-seg"), None)
         weights = _acquire_weights(cand) if cand else None
         if weights is None:
@@ -146,7 +176,8 @@ class Detector:
             if self._pothole_model is not None:
                 extra = [d for d in self._predict(self._pothole_model, image_bgr)
                          if d.cls_name == "pothole"]
-                out = merge_detections(out, extra)
+                out = merge_detections(out, extra,
+                                       iou_thr=self.cfg.ensemble_merge_iou)
         return out
 
     def _predict(self, model, image_bgr: np.ndarray) -> list[Detection]:

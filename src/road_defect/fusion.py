@@ -303,7 +303,12 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
         "per_view_tilt_deg": [a.tilt_deg, b.tilt_deg],
         "per_view_images": [a.image_name, b.image_name],
         "agreement": agreement,
-        "confidence_promoted": bool(allow_promote and agreement == "agree"),
+        # Флаг отражает ФАКТИЧЕСКОЕ повышение (conf строго выше base_conf), а не
+        # намерение: при потолке 'high' или капе either_low промоушен — no-op, и
+        # заявлять его нечестно (аудит 2026-07-07).
+        "confidence_promoted": bool(
+            agreement == "agree"
+            and _CONF_RANK[conf] > _CONF_RANK.get(base_conf, 0)),
         "fused_method": "inverse_variance_area + max_lower_bound_length",
         "area_tilt_corrected": area_tilt_corrected,
         "length_tilt_corrected": False,

@@ -60,7 +60,9 @@ def make_toy_dataset(n: int) -> Path:
                 # YOLO-формат: class cx cy w h (нормированные)
                 labels.append(f"3 {cx/size:.4f} {cy/size:.4f} "
                               f"{2*ax/size:.4f} {2*ay/size:.4f}")
-            cv2.imwrite(str(img_dir / f"toy_{i:03}.jpg"), img)
+            from road_defect import imgio
+            if not imgio.write_image(img_dir / f"toy_{i:03}.jpg", img):
+                raise RuntimeError(f"не удалось записать {img_dir / f'toy_{i:03}.jpg'}")
             (lbl_dir / f"toy_{i:03}.txt").write_text("\n".join(labels),
                                                      encoding="utf-8")
     yaml_path = TOY_DIR / "data.yaml"

@@ -277,6 +277,49 @@ def _ellipse_confirms_circle(ellipse, circle) -> bool:
     return bool(center_ok and diameter_ok)
 
 
+def _ellipse_looks_like_manhole(image_bgr: np.ndarray, ellipse) -> bool:
+    """Независимая проверка ВНЕШНЕГО ВИДА диска-люка (не только геометрия).
+
+    Путь 1 (Hough+контур) принимал эталон на чисто геометрическом согласии двух
+    краевых детекторов — но круглая ЯМА/заплатка, пропущенная детектором (и
+    потому не попавшая в exclude_boxes), тоже даёт согласованный круг+эллипс и
+    становилась бы ложным масштабом 646 мм (аудит 2026-07-07, нарушение принципа
+    «ложный масштаб хуже отсутствия»). Те же признаки уже есть в Пути 2
+    (detect_manhole_ellipses) — здесь применяем их и к Пути 1:
+      • сердцевина эллипса заметно ТЕМНЕЕ кольца вокруг (литой люк темнее асфальта);
+      • ≥50% периметра эллипса лежит на кромке Canny (у крышки резкая кромка,
+        у ямы/пятна/тени — размытая).
+    """
+    import cv2
+
+    (ecx, ecy), (MA, ma), ang = ellipse
+    if max(MA, ma) <= 0:
+        return False
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+    m_in = np.zeros((h, w), np.uint8)
+    cv2.ellipse(m_in, ((float(ecx), float(ecy)), (float(MA), float(ma)),
+                       float(ang)), 255, -1)
+    if not m_in.any():
+        return False
+    k = max(3, (int(round(0.06 * max(MA, ma))) | 1))   # кольцо ~6% диаметра, нечёт
+    ring = cv2.dilate(m_in, np.ones((k, k), np.uint8)) & ~m_in
+    if not ring.any():
+        return False
+    if float(gray[m_in > 0].mean()) > float(gray[ring > 0].mean()) - 8.0:
+        return False
+    edges = cv2.dilate(cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 50, 150),
+                       np.ones((3, 3), np.uint8))
+    poly = cv2.ellipse2Poly((int(round(ecx)), int(round(ecy))),
+                            (int(round(MA / 2)), int(round(ma / 2))),
+                            int(round(ang)), 0, 360, 5)
+    if len(poly) == 0:
+        return False
+    on_edge = sum(1 for px, py in poly
+                  if 0 <= px < w and 0 <= py < h and edges[py, px])
+    return on_edge / len(poly) >= 0.5
+
+
 def _center_in_any_box(cx: float, cy: float, boxes) -> bool:
     """Точка внутри какого-либо bbox (x, y, w, h)?"""
     for bx, by, bw, bh in boxes or []:
@@ -359,7 +402,8 @@ def scale_from_manhole(image_bgr: np.ndarray,
         if _center_in_any_box(cand[0], cand[1], exclude_boxes):
             continue
         e = fit_manhole_ellipse(image_bgr, cand)
-        if e is not None and _ellipse_confirms_circle(e, cand):
+        if (e is not None and _ellipse_confirms_circle(e, cand)
+                and _ellipse_looks_like_manhole(image_bgr, e)):
             on_plane, reason = _reference_on_ground_plane(
                 e, image_bgr.shape[0], _ellipse_tilt_deg(e), cfg)
             if not on_plane:
@@ -404,6 +448,15 @@ def scale_from_manhole(image_bgr: np.ndarray,
     mm_per_px = known_mm / diameter_px
     tilt_deg = _ellipse_tilt_deg(ellipse)
 
+    # type/subtype отражают ФАКТИЧЕСКИЙ якорь (закрытый обод 646 vs открытый лаз
+    # 600), а не захардкоженную строку — иначе JSON врал бы про использованный
+    # размер (аудит 2026-07-07). Выбор по близости переданного known_mm.
+    is_clear_opening = (abs(known_mm - config.GOST3634_CLEAR_OPENING_MM)
+                        < abs(known_mm - config.GOST3634_COVER_OUTER_MM))
+    ref_type = ("manhole_gost3634_clear_opening" if is_clear_opening
+                else "manhole_gost3634_cover")
+    anchor_txt = "лаза (открытый проём)" if is_clear_opening else "обода крышки"
+
     if tilt_deg < 15:
         confidence, err = "high", 12.0
     elif tilt_deg > 40:
@@ -415,12 +468,12 @@ def scale_from_manhole(image_bgr: np.ndarray,
         confidence, err = "medium", max(err, 18.0)
 
     return ReferenceMeasurement(
-        available=True, type="manhole_gost3634_cover", known_mm=known_mm,
+        available=True, type=ref_type, known_mm=known_mm,
         measured_px=round(diameter_px, 1), mm_per_px=round(mm_per_px, 4),
         tilt_deg=round(tilt_deg, 1),
         method=method, confidence=confidence,
         error_band_pct=err, circle_px=circle, ellipse_px=ellipse,
-        note=(f"Изотропный масштаб по ободу крышки люка {known_mm:.0f} мм (ГОСТ 3634). "
+        note=(f"Изотропный масштаб по {anchor_txt} люка {known_mm:.0f} мм (ГОСТ 3634). "
               + ("Вид близок к надиру." if confidence == "high"
                  else "Косой вид — точность снижена; рекомендуется серийная съёмка."
                  if confidence == "low" else "Умеренный наклон.")),
