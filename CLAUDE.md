@@ -21,7 +21,7 @@
 ```powershell
 $env:PYTHONPATH="src"
 .\.venv\Scripts\python.exe -m road_defect.cli --input <папка> --output <папка> [--depth --ensemble --pair]
-.\.venv\Scripts\python.exe -m pytest -q          # 129 тестов, держать зелёными
+.\.venv\Scripts\python.exe -m pytest -q          # 207 тестов, держать зелёными
 .\.venv\Scripts\python.exe scripts\smoke_test.py # прогреть модели (кэш весов)
 ```
 Пороги/константы — только через `config.py` (`InferenceConfig`), не хардкодить.

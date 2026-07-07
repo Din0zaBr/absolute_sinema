@@ -83,12 +83,16 @@ def test_run_pairs_dir_writes_reports_overlays_and_summary(tmp_path):
     assert cli._run_pairs_dir(pipe, str(root), out) == 0
 
     json_names = sorted(p.name for p in out.glob("*.json"))
+    # Все стемы пары префиксуются id папки: раньше вторая пара получала
+    # счётчик дедупа (front_2), не привязанный к папке 002 (аудит №10).
     assert json_names == [
         "001__front__back_pair.json",
-        "002__front_2__back_2_pair.json",
+        "002__front__back_pair.json",
     ]
     assert (out / "001__front__back_pair_annotated.jpg").exists()
-    assert (out / "002__front_2__back_2_pair_annotated.jpg").exists()
+    assert (out / "002__front__back_pair_annotated.jpg").exists()
+    assert (out / "001__front_annotated.jpg").exists()
+    assert (out / "002__back_annotated.jpg").exists()
 
     report = json.loads((out / json_names[0]).read_text(encoding="utf-8"))
     assert report["pair_id"] == "001"

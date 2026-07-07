@@ -14,7 +14,7 @@
      зазора реальных значений; при n=14 порог заведомо предварительный).
 
 Честность: скрипт ничего не пишет в конфиг — пороги фиксируются руками в
-src/road_defect/depth.py с пометкой v0 и датой.
+src/road_defect/config.py (InferenceConfig.depth_bucket_lo/hi) с пометкой и датой.
 """
 from __future__ import annotations
 

@@ -63,7 +63,7 @@ class DefectPipeline:
         self.road_category = road_category
         self.detector = Detector(cfg)
         self.segmenter = Segmenter()
-        self.depth = RelativeDepth() if use_depth else None
+        self.depth = RelativeDepth(cfg) if use_depth else None
 
     # --- одиночное фото ----------------------------------------------------
     def analyze_image(self, image_path: str | Path) -> tuple[dict, np.ndarray, list]:
@@ -107,7 +107,8 @@ class DefectPipeline:
                             "классы не дорожные; это лишь проверка конвейера.")
         if getattr(self.detector, "ensemble_failed", False):
             warnings.append("Запрошен ансамбль (--ensemble), но второй pothole-детектор "
-                            "не загрузился — отработал только основной проход.")
+                            "не поднялся (нет весов/сети или в весах нет класса "
+                            "pothole — детали в логе) — отработал только основной проход.")
         if not detections:
             warnings.append("Дефекты не обнаружены.")
 
@@ -115,9 +116,12 @@ class DefectPipeline:
         for i, det in enumerate(detections, start=1):
             # 3) маска формы
             # Линейные трещины легально тонкие — общий порог терял их целиком.
-            min_area = (self.cfg.mask_min_area_linear_px
-                        if det.cls_name in config.LINEAR_DEFECT_CLASSES
-                        else self.cfg.mask_min_area_px)
+            # На кадрах ниже опорного разрешения порог масштабируется ВНИЗ
+            # (аудит №7): абсолютные 60/200 px калиброваны на кадрах >= ~2.9 МП.
+            base_min_area = (self.cfg.mask_min_area_linear_px
+                             if det.cls_name in config.LINEAR_DEFECT_CLASSES
+                             else self.cfg.mask_min_area_px)
+            min_area = self.cfg.scaled_mask_min_area(base_min_area, (H, W))
             if det.mask is not None:
                 mask, mask_method = det.mask, "detector_mask"
             else:

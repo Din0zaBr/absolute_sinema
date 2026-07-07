@@ -27,9 +27,10 @@
      бакет зависел от дистанции съёмки.)
   4. Надир/слабая перспектива: линейки нет — ЧЕСТНЫЙ ОТКАЗ
      `degenerate_local_ruler`, а не подмена. Ворота разрешимости
-     ruler ≥ 3σ/BUCKET_HI: иначе любой drop, прошедший ворота шума, давал бы
-     «deep» тождеством, а не измерением (ревью 2026-07-03: текстурная линейка
-     3σ была математически вырождена — medium был недостижим).
+     ruler ≥ noise_gate·σ/hi (значения — InferenceConfig, v0: 3σ/0.35): иначе
+     любой drop, прошедший ворота шума, давал бы «deep» тождеством, а не
+     измерением (ревью 2026-07-03: текстурная линейка 3σ была математически
+     вырождена — medium был недостижим).
   5. rel_norm ≈ «глубина/поперечная ширина» — КРУТИЗНА просадки, индикатор
      приоритета, НЕ глубина: широкая пологая просадка легально мельче
      компактной ямы той же глубины.
@@ -50,17 +51,24 @@ from . import config
 # порогов возможна только на фото с ярко выраженными глубокими ямами —
 # рекалибровать при появлении набора РФ. ЕДИНИЦЫ ШКАЛЫ НЕ совместимы со
 # старыми порогами 0.02/0.06 (те были долями полнокадрового диапазона).
-BUCKET_LO = 0.08                 # ниже — shallow
-BUCKET_HI = 0.35                 # выше — deep
+#
+# Канон порогов — config.InferenceConfig (depth_bucket_lo/hi,
+# depth_noise_gate_sigma): правило «пороги только через config» (аудит
+# 2026-07-07, №8). Модульные имена сохранены для существующих импортов
+# (tests/test_depth_bucket.py, scripts/calibrate_depth_bucket.py).
+BUCKET_LO = config.DEFAULT_INFERENCE.depth_bucket_lo   # ниже — shallow
+BUCKET_HI = config.DEFAULT_INFERENCE.depth_bucket_hi   # выше — deep
+_NOISE_GATE = config.DEFAULT_INFERENCE.depth_noise_gate_sigma
+# Ниже — внутренности алгоритма/бюджет CPU, не калибровочные ручки:
 _MIN_MASK_AREA_PX = 100          # мельче — сигнал разрушен инференсом ~518 px
 _MIN_RING_PX = 200               # носитель плоскости
 _RING_SUBSAMPLE = 20000          # сабсэмпл кольца для CPU
-_NOISE_GATE = 3.0                # просадка < 3σ шероховатости — не сигнал
 _REL_NORM_CAP = 4.0              # защита от взрыва на «зеркальной» карте
 
 
 class RelativeDepth:
-    def __init__(self):
+    def __init__(self, cfg: config.InferenceConfig = config.DEFAULT_INFERENCE):
+        self.cfg = cfg
         self._pipe = None
         self._tried = False
         self.available = False
@@ -141,7 +149,9 @@ class RelativeDepth:
             result["method"] = "mask_below_depth_resolution"
             return result
 
-        result.update(ring_plane_bucket(depth, m))
+        result.update(ring_plane_bucket(
+            depth, m, lo=self.cfg.depth_bucket_lo, hi=self.cfg.depth_bucket_hi,
+            noise_gate=self.cfg.depth_noise_gate_sigma))
         return result
 
 
@@ -159,10 +169,14 @@ def mask_to_depth_grid(m: np.ndarray, depth_shape: tuple) -> np.ndarray:
                       interpolation=cv2.INTER_NEAREST).astype(bool)
 
 
-def ring_plane_bucket(depth: np.ndarray, m: np.ndarray) -> dict:
+def ring_plane_bucket(depth: np.ndarray, m: np.ndarray,
+                      lo: float = BUCKET_LO, hi: float = BUCKET_HI,
+                      noise_gate: float = _NOISE_GATE) -> dict:
     """Бакет «кольцевой плоскостной линейкой» (см. док модуля). Чистая функция
     (карта глубины + маска) — тестируется на синтетике без модели.
 
+    lo/hi/noise_gate по умолчанию — значения config.DEFAULT_INFERENCE;
+    RelativeDepth передаёт пороги СВОЕГО InferenceConfig (аудит №8).
     Возвращает {'depth_bucket': str|None, 'method': str, ...диагностика}.
     """
     import cv2
@@ -224,7 +238,7 @@ def ring_plane_bucket(depth: np.ndarray, m: np.ndarray) -> dict:
         # тонкая маска (трещина): эрозия опустошила ядро — верхний квартиль
         drop = float(np.percentile(_plane_minus_depth(m), 75))
 
-    if drop < _NOISE_GATE * sigma:
+    if drop < noise_gate * sigma:
         # Просадка неотличима от шероховатости покрытия — честный shallow.
         return {"depth_bucket": "shallow",
                 "method": "depth_anything_v2_small_ring_plane:below_local_noise",
@@ -250,13 +264,13 @@ def ring_plane_bucket(depth: np.ndarray, m: np.ndarray) -> dict:
     # измерением — честный отказ (надир, слабая перспектива, вырожденная
     # маска). Ревью 2026-07-03: текстурная линейка max(…, 3σ) всегда давала
     # deep и была удалена.
-    if ruler < _NOISE_GATE * sigma / BUCKET_HI:
+    if ruler < noise_gate * sigma / hi:
         return {"depth_bucket": None, "method": "degenerate_local_ruler",
                 "_sigma": round(sigma, 5), "_drop": round(drop, 5)}
 
     rel_norm = float(np.clip(drop / ruler, 0.0, _REL_NORM_CAP))
-    bucket = ("shallow" if rel_norm < BUCKET_LO
-              else "deep" if rel_norm > BUCKET_HI else "medium")
+    bucket = ("shallow" if rel_norm < lo
+              else "deep" if rel_norm > hi else "medium")
     return {"depth_bucket": bucket, "method": "depth_anything_v2_small_ring_plane",
             "_rel_norm": round(rel_norm, 4), "_sigma": round(sigma, 5),
             "_drop": round(drop, 5)}

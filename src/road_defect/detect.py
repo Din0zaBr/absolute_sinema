@@ -78,6 +78,34 @@ def _containment(a: tuple, b: tuple) -> float:
     return inter / smaller if smaller > 0 else 0.0
 
 
+# Ярлыки «ямы» в нижнем регистре: канон + коды таксономии (D40). Дрейф
+# регистра/пробелы в весах ('d40', 'D40 ', 'Pothole') не должны опустошать
+# проход (ревью 2026-07-07: get() по DEFECT_CLASSES был регистрозависим).
+_POTHOLE_RAW_LABELS = {"pothole"} | {
+    k.lower() for k, v in config.DEFECT_CLASSES.items() if v == "pothole"}
+
+
+def _is_pothole_label(raw: str) -> bool:
+    """Ярлык модели -> «это класс ямы?»: таксономия, без регистра и пробелов.
+
+    Второй проход ансамбля фильтруется этим предикатом: жёсткое сравнение
+    строки молча опустошало бы проход при дрейфе ярлыка весов — ensemble_active
+    оставался True при вечных 0 детекций (аудит 2026-07-07, ловушка №19).
+    """
+    return str(raw).strip().lower() in _POTHOLE_RAW_LABELS
+
+
+def _second_pass_potholes(dets: list) -> list:
+    """Оставить из второго прохода только ямы, канонизировав cls_name:
+    нестандартный регистр ярлыка не должен просачиваться в AREAL_/JSON."""
+    out = []
+    for d in dets:
+        if _is_pothole_label(d.raw_label):
+            d.cls_name = "pothole"
+            out.append(d)
+    return out
+
+
 def merge_detections(primary: list, secondary: list,
                      iou_thr: float = 0.35) -> list:
     """Слить детекции второго прохода в основной список.
@@ -161,11 +189,26 @@ class Detector:
             self.ensemble_failed = True
             return
         try:
-            self._pothole_model = YOLO(weights)
-            self.ensemble_active = True
+            model = YOLO(weights)
         except Exception:
             self._pothole_model = None
             self.ensemble_failed = True
+            return
+        # Смок-ассерт ярлыка (ловушка №19): веса без класса ямы дали бы
+        # ensemble_active=True при гарантированных 0 детекций — молчаливо
+        # пустой второй проход. Честный отказ попадает в warnings отчёта.
+        names = getattr(model, "names", None) or {}
+        labels = [str(v) for v in
+                  (names.values() if isinstance(names, dict) else names)]
+        if labels and not any(_is_pothole_label(lab) for lab in labels):
+            logging.getLogger(__name__).warning(
+                "Второй pothole-проход: среди классов весов %s нет ямы %s — "
+                "ансамбль не активирован.", cand.name, labels)
+            self._pothole_model = None
+            self.ensemble_failed = True
+            return
+        self._pothole_model = model
+        self.ensemble_active = True
 
     def detect(self, image_bgr: np.ndarray) -> list[Detection]:
         if self._model is None:
@@ -174,8 +217,8 @@ class Detector:
         if self.cfg.ensemble_pothole:
             self._load_pothole_second_pass()
             if self._pothole_model is not None:
-                extra = [d for d in self._predict(self._pothole_model, image_bgr)
-                         if d.cls_name == "pothole"]
+                extra = _second_pass_potholes(
+                    self._predict(self._pothole_model, image_bgr))
                 out = merge_detections(out, extra,
                                        iou_thr=self.cfg.ensemble_merge_iou)
         return out

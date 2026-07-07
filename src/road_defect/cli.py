@@ -82,11 +82,16 @@ def _save_pair_result(pipe, a: Path, b: Path, out: Path,
     if pair_prefix:
         report["pair_id"] = pair_prefix
     used = used_stems if used_stems is not None else set()
-    stem_a = report_mod.unique_stem(a.stem, used)
-    stem_b = report_mod.unique_stem(b.stem, used)
-    pair_stem = f"{stem_a}__{stem_b}_pair"
-    if pair_prefix:
-        pair_stem = report_mod.unique_stem(f"{pair_prefix}__{pair_stem}", used)
+    # ВСЕ стемы пары префиксуются id папки (002__front, 002__front__back_pair):
+    # раньше пофайловые overlay получали счётчик дедупа (front_2), который при
+    # любом пропуске пары расходился с папкой 002 — кадр было не привязать к
+    # паре (аудит 2026-07-07, №10). Конвенцию описывают docs/PAIR_WORKFLOW.md
+    # и scripts/report_gen/README.md (манифест снимка ссылается на старые имена).
+    view_prefix = f"{pair_prefix}__" if pair_prefix else ""
+    stem_a = report_mod.unique_stem(f"{view_prefix}{a.stem}", used)
+    stem_b = report_mod.unique_stem(f"{view_prefix}{b.stem}", used)
+    pair_stem = report_mod.unique_stem(
+        f"{view_prefix}{a.stem}__{b.stem}_pair", used)
     report_mod.save_report(report, out, pair_stem)
     # overlay вида A (носитель геометрии отчёта) дублируем под стем отчёта —
     # так его находит make_demo_report ({stem}.json ↔ {stem}_annotated.jpg).
@@ -130,6 +135,21 @@ def _run_pairs_dir(pipe, pairs_dir: str, out: Path) -> int:
     if not pairs:
         print("Ни одной пары front/back не найдено.", file=sys.stderr)
         return 1
+    if out.exists():
+        # Миграционный гейт (цикл 13): pair-отчёты старой конвенции
+        # (002__front_2__back_2_pair.json) новый прогон НЕ перезапишет —
+        # смешанная папка двоит пары в сводках и глобах (pair_quality_table,
+        # make_demo_report, манифест report_gen берёт старый JSON первым).
+        expected = {f"{pid}__{front.stem}__{back.stem}_pair.json"
+                    for pid, front, back in pairs}
+        stale = sorted(p.name for p in out.glob("*_pair.json")
+                       if p.name not in expected)
+        if stale:
+            print(f"  [ВНИМАНИЕ] в {out} лежат {len(stale)} pair-отчётов, "
+                  f"которые этот прогон не перезапишет (например {stale[0]}): "
+                  "смешанная папка двоит пары в сводках/глобах. Рекомендуется "
+                  "чистая --output (конвенция имён сменилась в цикле 13).",
+                  file=sys.stderr)
 
     print(f"Обработка пар: {len(pairs)} -> {out}")
     ok_count = 0
