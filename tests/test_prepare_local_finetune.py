@@ -163,6 +163,191 @@ def test_single_scene_points_val_at_train(tmp_path, monkeypatch, capsys):
     assert "val пуст" in capsys.readouterr().out
 
 
+def test_holdout_scene_is_excluded_from_training_set(tmp_path, monkeypatch, capsys):
+    # Гейт контаминации P0: сцена из holdout_scenes.txt не попадает в набор
+    # дообучения (eval никогда не в обучении, docs/EVAL.md).
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    for i in (1, 2, 3):
+        _img_pair(pairs, f"{i:03d}", (40 * i, 0, 0), (0, 40 * i, 0))
+    holdout = tmp_path / "holdout.txt"
+    holdout.write_text("# eval_v1\n002\n", encoding="utf-8")
+    out = tmp_path / "yolo"
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs), "--out", str(out),
+                         "--holdout", str(holdout)])
+    assert pmf.main() == 0
+    scenes = {p.name.split("_")[0] for p in (out / "images").rglob("*.jpg")}
+    assert scenes == {"001", "003"}
+    assert "held-out" in capsys.readouterr().out
+
+
+def test_holdout_excludes_whole_md5_group_by_any_member(tmp_path, monkeypatch):
+    # 001 и 002 — одна фотография front (одна сцена, rep=001). Holdout называет
+    # только 002 — исключиться обязана ВСЯ группа: тот же кадр под id 001 в
+    # обучении сделал бы eval нечестным.
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "001", (10, 0, 0), (0, 10, 0))
+    _img_pair(pairs, "002", (10, 0, 0), (0, 20, 0))   # тот же front, что 001
+    _img_pair(pairs, "003", (30, 0, 0), (0, 30, 0))
+    holdout = tmp_path / "holdout.txt"
+    holdout.write_text("002\n", encoding="utf-8")
+    out = tmp_path / "yolo"
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs), "--out", str(out),
+                         "--holdout", str(holdout)])
+    assert pmf.main() == 0
+    scenes = {p.name.split("_")[0] for p in (out / "images").rglob("*.jpg")}
+    assert scenes == {"003"}                          # группа 001+002 исключена
+
+
+def test_explicit_missing_holdout_is_error_not_silent_off(tmp_path, monkeypatch, capsys):
+    # Ревью 2026-07-07 [HIGH]: опечатка в явном --holdout НЕ должна молча
+    # выключать гейт контаминации — это ошибка (отключение только --holdout '').
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "001", (10, 0, 0), (0, 10, 0))
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs),
+                         "--out", str(tmp_path / "yolo"),
+                         "--holdout", str(tmp_path / "no_such.txt")])
+    assert pmf.main() == 2
+    assert "не найден" in capsys.readouterr().out
+
+
+def test_default_holdout_is_resolved_next_to_pairs(tmp_path, monkeypatch, capsys):
+    # Пин дефолтной проводки (ревью: мутации «дефолт выключен» и «дефолт от
+    # cwd» выживали): без --holdout берётся <pairs>/../eval_v1/holdout_scenes.txt.
+    # id 555/777 вне боевого списка — cwd-мутация не смогла бы их исключить.
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "555", (10, 0, 0), (0, 10, 0))
+    _img_pair(pairs, "777", (30, 0, 0), (0, 30, 0))
+    (tmp_path / "eval_v1").mkdir()
+    (tmp_path / "eval_v1" / "holdout_scenes.txt").write_text("555\n",
+                                                             encoding="utf-8")
+    out = tmp_path / "yolo"
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs), "--out", str(out)])
+    assert pmf.main() == 0
+    scenes = {p.name.split("_")[0] for p in (out / "images").rglob("*.jpg")}
+    assert scenes == {"777"}
+    assert "гейт активен" in capsys.readouterr().out
+
+
+def test_default_holdout_missing_warns_gate_inactive(tmp_path, monkeypatch, capsys):
+    # Свежий клон/нет eval-набора: гейт неактивен, но об этом ГРОМКО сказано
+    # (молчаливо-неактивная защита — ложная гарантия, ревью 2026-07-07).
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "001", (10, 0, 0), (0, 10, 0))
+    _img_pair(pairs, "003", (30, 0, 0), (0, 30, 0))
+    out = tmp_path / "yolo"
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs), "--out", str(out)])
+    assert pmf.main() == 0
+    scenes = {p.name.split("_")[0] for p in (out / "images").rglob("*.jpg")}
+    assert scenes == {"001", "003"}
+    assert "НЕАКТИВЕН" in capsys.readouterr().out
+
+
+def test_holdout_with_bom_still_excludes_first_scene(tmp_path, monkeypatch):
+    # BOM Windows-редактора «съедал» первую строку -> сцена молча оставалась
+    # в обучении (частичная контаминация, ревью 2026-07-07).
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "001", (10, 0, 0), (0, 10, 0))
+    _img_pair(pairs, "003", (30, 0, 0), (0, 30, 0))
+    holdout = tmp_path / "holdout.txt"
+    holdout.write_bytes("001\n".encode("utf-8-sig"))
+    out = tmp_path / "yolo"
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs), "--out", str(out),
+                         "--holdout", str(holdout)])
+    assert pmf.main() == 0
+    scenes = {p.name.split("_")[0] for p in (out / "images").rglob("*.jpg")}
+    assert scenes == {"003"}
+
+
+def test_holdout_in_utf16_is_clear_error(tmp_path, monkeypatch, capsys):
+    # PowerShell `>` пишет UTF-16: вместо трейсбека — внятный отказ.
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "001", (10, 0, 0), (0, 10, 0))
+    holdout = tmp_path / "holdout.txt"
+    holdout.write_bytes("001\n".encode("utf-16"))
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs),
+                         "--out", str(tmp_path / "yolo"),
+                         "--holdout", str(holdout)])
+    assert pmf.main() == 2
+    assert "UTF-8" in capsys.readouterr().out
+
+
+def test_holdout_excludes_scene_by_frame_content_md5(tmp_path, monkeypatch, capsys):
+    # Контентная сверка (ревью: группы клеятся только по front — back-канал):
+    # кадр сцены 777 байт-в-байт лежит в eval-манифесте -> сцена исключается,
+    # хотя её id в holdout НЕ назван.
+    pytest.importorskip("PIL")
+    import hashlib
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "555", (10, 0, 0), (0, 10, 0))
+    _img_pair(pairs, "777", (30, 0, 0), (0, 30, 0))
+    _img_pair(pairs, "888", (50, 0, 0), (0, 50, 0))
+    ev = tmp_path / "eval_v1"
+    ev.mkdir()
+    (ev / "holdout_scenes.txt").write_text("555\n", encoding="utf-8")
+    back_md5 = hashlib.md5((pairs / "777" / "back.jpg").read_bytes()).hexdigest()
+    (ev / "manifest.csv").write_text(
+        "frame_id,scene,view,group,source,md5\n"
+        f"x_back,x,back,clean,y,{back_md5}\n", encoding="utf-8-sig")
+    out = tmp_path / "yolo"
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs), "--out", str(out)])
+    assert pmf.main() == 0
+    scenes = {p.name.split("_")[0] for p in (out / "images").rglob("*.jpg")}
+    assert scenes == {"888"}                          # 555 по id, 777 по md5
+    assert "СОДЕРЖИМОМУ" in capsys.readouterr().out
+
+
+def test_grown_holdout_moves_hand_labels_instead_of_deleting(tmp_path, monkeypatch):
+    # Ревью 2026-07-07: рост holdout-списка на уже размеченной раскладке
+    # стирал бы часы ручной работы — непустые label уезжают в labels_removed/.
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "001", (10, 0, 0), (0, 10, 0))
+    _img_pair(pairs, "003", (30, 0, 0), (0, 30, 0))
+    out = tmp_path / "yolo"
+    assert _run(pairs, out, monkeypatch) == 0
+    lbl = next((out / "labels").rglob("001_front.txt"))
+    lbl.write_text("3 0.5 0.5 0.2 0.2\n", encoding="utf-8")   # ручная разметка
+
+    holdout = tmp_path / "holdout.txt"
+    holdout.write_text("001\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs), "--out", str(out),
+                         "--holdout", str(holdout)])
+    assert pmf.main() == 0
+    assert not list((out / "labels").rglob("001_front.txt"))
+    saved = out / "labels_removed" / "001_front.txt"
+    assert saved.read_text(encoding="utf-8").startswith("3 0.5")
+
+
+def test_all_scenes_held_out_refuses(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("PIL")
+    pairs = tmp_path / "local_pairs"
+    _img_pair(pairs, "001", (10, 0, 0), (0, 10, 0))
+    holdout = tmp_path / "holdout.txt"
+    holdout.write_text("001\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv",
+                        ["prog", "--pairs", str(pairs),
+                         "--out", str(tmp_path / "yolo"),
+                         "--holdout", str(holdout)])
+    assert pmf.main() == 2
+    assert "пуст" in capsys.readouterr().out
+
+
 def test_unreadable_frame_is_skipped(tmp_path, monkeypatch, capsys):
     # [4]: битый кадр не должен уехать в набор (иначе даталоадер обучения упадёт).
     pytest.importorskip("PIL")

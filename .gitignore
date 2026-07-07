@@ -14,7 +14,17 @@ outputs/
 outputs_*/
 runs/
 runs_train/
-datasets/
+# datasets/ игнорируется ПОКРОМЕ малых текстовых файлов eval-набора: manifest,
+# holdout-список и ручная разметка — носители held-out дисциплины P0
+# (docs/EVAL.md); свежий клон без них молча терял бы гейт контаминации и
+# 2-4 часа ручной разметки (ревью 2026-07-07). Кадры (frames/) — бинарники,
+# остаются вне git: набор воспроизводится scripts/make_eval_set.py.
+datasets/*
+!datasets/eval_v1/
+datasets/eval_v1/*
+!datasets/eval_v1/manifest.csv
+!datasets/eval_v1/holdout_scenes.txt
+!datasets/eval_v1/annotations.json
 
 # исходные фото-семплы (большие бинарники с произвольными именами)
 /*.jpg

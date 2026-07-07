@@ -21,7 +21,7 @@
 ```powershell
 $env:PYTHONPATH="src"
 .\.venv\Scripts\python.exe -m road_defect.cli --input <папка> --output <папка> [--depth --ensemble --pair]
-.\.venv\Scripts\python.exe -m pytest -q          # 207 тестов, держать зелёными
+.\.venv\Scripts\python.exe -m pytest -q          # 258 тестов, держать зелёными
 .\.venv\Scripts\python.exe scripts\smoke_test.py # прогреть модели (кэш весов)
 ```
 Пороги/константы — только через `config.py` (`InferenceConfig`), не хардкодить.
@@ -48,8 +48,10 @@ $env:PYTHONPATH="src"
 ## Скрипты (`scripts/`)
 Диагностика: `detect_sweep.py` (разбор пропусков conf-свипом), `scale_debug.py`,
 `validate_outputs.py` (инварианты). Данные/обучение: `prepare_rdd2022.py`,
-`prepare_local_finetune.py`, `finetune_rdd2022.py`, `val_rdd2022.py`,
-`calibrate_depth_bucket.py`, `build_measure_form.py`, `pair_quality_table.py`.
+`prepare_local_finetune.py` (исключает held-out eval-сцены), `finetune_rdd2022.py`,
+`val_rdd2022.py`, `calibrate_depth_bucket.py`, `build_measure_form.py`,
+`pair_quality_table.py`. Замер качества детекции (P0): `make_eval_set.py`,
+`build_eval_annotator.py`, `eval_detection.py` — протокол в `docs/EVAL.md`.
 Демо: `make_demo_deck.py` (слайд-дек), `make_demo_report.py` (таблица),
 `demo_two_view.py` (контролируемое см-демо на синтетике).
 
@@ -70,6 +72,7 @@ $env:PYTHONPATH="src"
 - Архитектура/решения — `docs/PROJECT.md`. Статус/история циклов — `docs/STATUS.md`.
 - Датасет/разметка — `docs/DATASET.md`. Сценарий показа — `docs/DEMO.md`.
 - Работа с парами — `docs/PAIR_WORKFLOW.md`.
+- Замер качества детекции (eval-набор, разметка, метрики) — `docs/EVAL.md`.
 - **Backlog улучшений детекции и разбор ложных срабатываний — `docs/IMPROVEMENTS.md`.**
 - **Аудит багов/недочётов + план фиксов и алгоритм работы — `docs/HANDOFF_FABLE.md`**
   (временный: вычёркивать пункты по мере исправления).
