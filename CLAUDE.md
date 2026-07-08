@@ -21,10 +21,11 @@
 ```powershell
 $env:PYTHONPATH="src"
 .\.venv\Scripts\python.exe -m road_defect.cli --input <папка> --output <папка> [--depth --ensemble --pair]
-.\.venv\Scripts\python.exe -m pytest -q          # 259 тестов, держать зелёными
+.\.venv\Scripts\python.exe -m pytest -q          # 272 теста, держать зелёными
 .\.venv\Scripts\python.exe scripts\smoke_test.py # прогреть модели (кэш весов)
 ```
-Пороги/константы — только через `config.py` (`InferenceConfig`), не хардкодить.
+Пороги/константы — только через `config.py` (`InferenceConfig`,
+`TwoViewDepthConfig`), не хардкодить.
 Ключевые дефолты: `imgsz=1024`, `det_conf=0.25`, `det_iou=0.45`, ансамбль ВЫКЛ.
 
 ## Карта модулей (`src/road_defect/`)
@@ -32,6 +33,9 @@ $env:PYTHONPATH="src"
 - `detect.py` — YOLO-детекция, второй pothole-проход (ансамбль), `merge_detections`.
 - `segment.py` — маски: ямы — MobileSAM; трещины — классическая экстракция тонких структур в полном разрешении (нейросеть на 1024px не видит трещину 2px).
 - `depth.py` — Depth Anything V2 Small, относительные бакеты глубины.
+- `photogrammetry.py` — two-view см-глубина по паре калиброванных бортовых
+  видов (перед/за), прототип v0: НЕ в pipeline, валидирован на синтетике
+  (`scripts/bench_two_view_depth.py` 21/21) — см. `docs/VEHICLE_CAPTURE.md` §3.1.
 - `scale.py` — эталон (люк ГОСТ 3634 / разметка / бордюр) и перевод в см с кросс-проверкой.
 - `shape.py` — дескрипторы формы (эксцентриситет, solidity, …).
 - `severity.py` — вердикт ГОСТ Р 50597.
@@ -54,6 +58,8 @@ $env:PYTHONPATH="src"
 `build_eval_annotator.py`, `eval_detection.py` — протокол в `docs/EVAL.md`.
 Демо: `make_demo_deck.py` (слайд-дек), `make_demo_report.py` (таблица),
 `demo_two_view.py` (контролируемое см-демо на синтетике).
+Стенд two-view глубины: `synth_road3d.py` (3D-рендер) + `bench_two_view_depth.py`
+(21 кейс, гейтит photogrammetry.py).
 
 ## Процесс работы (принятый в проекте)
 Работа циклами: коммиты `Цикл N: …` (по-русски), в конце цикла — **адверсариальное
@@ -72,6 +78,8 @@ $env:PYTHONPATH="src"
 - Архитектура/решения — `docs/PROJECT.md`. Статус/история циклов — `docs/STATUS.md`.
 - Датасет/разметка — `docs/DATASET.md`. Сценарий показа — `docs/DEMO.md`.
 - Работа с парами — `docs/PAIR_WORKFLOW.md`.
+- Бортовая съёмка с машины (пути к глубине, риг-эталон, two-view глубина §3.1,
+  архитектура сервиса, план пилота) — `docs/VEHICLE_CAPTURE.md`.
 - Замер качества детекции (eval-набор, разметка, метрики) — `docs/EVAL.md`;
   пошаговая инструкция разметчику-новичку — `docs/ANNOTATION_GUIDE.md`.
 - **Backlog улучшений детекции и разбор ложных срабатываний — `docs/IMPROVEMENTS.md`.**
