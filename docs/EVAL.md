@@ -55,6 +55,8 @@ $env:PYTHONPATH="src"
 
 # 3. Разметчик: открыть outputs_eval\annotator.html, разметить, скачать
 #    annotations.json и положить в datasets\eval_v1\annotations.json
+#    (альтернатива: внешняя программа — выбран X-AnyLabeling — затем
+#    scripts\import_annotations.py; см. docs/ANNOTATION_GUIDE.md)
 .\.venv\Scripts\python.exe scripts\build_eval_annotator.py --proposals outputs_eval\reports
 
 # 4. Замер (повторять после каждого изменения детекции)
@@ -116,6 +118,10 @@ $env:PYTHONPATH="src"
 Все координаты — пиксели ОРИГИНАЛА, `[x, y, w, h]`, `w/h > 0`. Валидацию
 делает `eval_detection.load_annotations` (неизвестный класс/категория или
 вырожденный бокс валят замер с указанием кадра — чинить разметку, не харнесс).
+Файл создаёт наш разметчик («Скачать annotations.json») либо конвертер
+внешней разметки `scripts/import_annotations.py` (родной формат
+X-AnyLabeling / YOLO / COCO) — он гоняет результат через тот же
+`load_annotations` и при любой проблеме не пишет ничего.
 
 ## Как читать отчёт `eval_detection.py`
 

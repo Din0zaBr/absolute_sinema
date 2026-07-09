@@ -55,7 +55,9 @@ $env:PYTHONPATH="src"
 `prepare_local_finetune.py` (исключает held-out eval-сцены), `finetune_rdd2022.py`,
 `val_rdd2022.py`, `calibrate_depth_bucket.py`, `build_measure_form.py`,
 `pair_quality_table.py`. Замер качества детекции (P0): `make_eval_set.py`,
-`build_eval_annotator.py`, `eval_detection.py` — протокол в `docs/EVAL.md`.
+`build_eval_annotator.py`, `eval_detection.py`, `import_annotations.py`
+(конвертер внешней разметки: X-AnyLabeling/YOLO/COCO → annotations.json) —
+протокол в `docs/EVAL.md`.
 Демо: `make_demo_deck.py` (слайд-дек), `make_demo_report.py` (таблица),
 `demo_two_view.py` (контролируемое см-демо на синтетике).
 Стенд two-view глубины: `synth_road3d.py` (3D-рендер) + `bench_two_view_depth.py`
@@ -81,7 +83,8 @@ $env:PYTHONPATH="src"
 - Бортовая съёмка с машины (пути к глубине, риг-эталон, two-view глубина §3.1,
   архитектура сервиса, план пилота) — `docs/VEHICLE_CAPTURE.md`.
 - Замер качества детекции (eval-набор, разметка, метрики) — `docs/EVAL.md`;
-  пошаговая инструкция разметчику-новичку — `docs/ANNOTATION_GUIDE.md`.
+  пошаговая инструкция разметчику-новичку — `docs/ANNOTATION_GUIDE.md`;
+  разметка в X-AnyLabeling (выбран) — `docs/XANYLABELING_GUIDE.md`.
 - **Backlog улучшений детекции и разбор ложных срабатываний — `docs/IMPROVEMENTS.md`.**
 - **Аудит багов/недочётов + план фиксов и алгоритм работы — `docs/HANDOFF_FABLE.md`**
   (временный: вычёркивать пункты по мере исправления).
