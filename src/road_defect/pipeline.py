@@ -5,11 +5,14 @@
 """
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 
 from . import config, imgio, scale as scale_mod, shape as shape_mod, severity as severity_mod
+from . import depth as depth_mod
+from . import plane_scale
 from . import report as report_mod
 from . import fusion as fusion_mod
 from .detect import Detector
@@ -27,6 +30,17 @@ def _reference_label(ref) -> str:
              "curb_gost6665": "curb"}.get(ref.type or "", ref.type or "ref")
     km = f" {ref.known_mm:.0f}mm" if ref.known_mm else ""
     return f"{short}{km}{' +xcheck' if ref.cross_checked else ''}"
+
+
+def _attribute_severity(sev: dict, scale_source: str | None) -> dict:
+    """Пометить вердикт ГОСТ, посчитанный от ОЦЕНОЧНЫХ размеров: «длина/площадь
+    превышает» от масштаба высоты камеры не должна читаться как замер."""
+    if scale_source in ("camera_height", "mixed"):
+        extra = ("Размеры — оценка от высоты камеры (размер маски дефекта), "
+                 "не для актирования.")
+        sev = dict(sev)
+        sev["note"] = f"{sev['note']} {extra}" if sev.get("note") else extra
+    return sev
 
 
 def _select_dominant_pothole(defects: list):
@@ -102,6 +116,47 @@ class DefectPipeline:
         mm_per_px = ref.mm_per_px if ref.available else None
         mode = "single_with_reference" if ref.available else "single"
 
+        # 2b) fallback-масштаб от высоты камеры (plane_scale.py): только когда
+        #     эталона нет и высота задана явно; НЕ сертифицируем (ТЗ §2.1) —
+        #     все размеры от него уходят с confidence='low' и полосой.
+        cam_geom = None
+        cam_refusals: Counter = Counter()
+        cs = self.cfg.camera_scale
+        # detections обязательны: без дефектов масштаб не нужен, а инференс
+        # карты глубины на пустом кадре — чистое замедление (ревью 2026-07-16).
+        if cs.enabled and not ref.available and detections:
+            if self.depth is None:
+                warnings.append("Масштаб от высоты камеры задан, но глубина "
+                                "выключена (--depth) — карты для оценки "
+                                "горизонта нет, источник неактивен.")
+            else:
+                raw_depth = self.depth.frame_depth(img)
+                if raw_depth is None:
+                    warnings.append("Масштаб от высоты камеры: модель глубины "
+                                    "недоступна — источник неактивен.")
+                else:
+                    cam_geom, cam_err = plane_scale.resolve_frame_geometry(
+                        img, raw_depth, image_path,
+                        [d.bbox_xywh for d in detections], cs)
+                    if cam_geom is None:
+                        warnings.append(
+                            f"Масштаб от высоты камеры: отказ ({cam_err}).")
+                    else:
+                        warnings.append(
+                            f"Масштаб от высоты камеры H={cs.height_m:.2f} м "
+                            f"({cam_geom.horizon_method}, тангаж "
+                            f"{cam_geom.theta_deg:.1f}°): размеры дефектов — "
+                            "ОЦЕНКА (confidence=low, certifiable=false), не "
+                            "для актирования; Д/Ш — размер МАСКИ дефекта "
+                            "(включая тёмный ореол), не рулеточного "
+                            "«разрушения».")
+                        if cam_geom.horizon_method == "prior_pitch":
+                            warnings.append(
+                                "Тангаж взят из ПРИОРА (по кадру подтверждены "
+                                "только крен и направление уклона): значения "
+                                "валидны лишь для той же постановки съёмки — "
+                                "стоя, в полный рост, с заявленной высоты.")
+
         if self.detector.is_fallback:
             warnings.append("Используется COCO-фолбэк детектора (нет весов под дефекты) — "
                             "классы не дорожные; это лишь проверка конвейера.")
@@ -147,29 +202,82 @@ class DefectPipeline:
                       "depth_cm": None, "depth_bucket": None,
                       "depth_method": None,  # ключи стабильны и без --depth
                       "depth_certifiable": False,
+                      "depth_cm_estimate": None,  # блок оценки — только с --depth
                       "confidence": None, "error_band_pct": None,
                       # наклон вида (из эталона) — нужен слиянию двух видов (F1);
                       # стабильный ключ как depth_*: всегда присутствует
-                      "view_tilt_deg": ref.tilt_deg if ref.available else None}
+                      "view_tilt_deg": ref.tilt_deg if ref.available else None,
+                      # источник масштаба: 'reference' | 'camera_height' | None;
+                      # camera_scale — диагностика источника высоты (или null)
+                      "scale_source": None, "camera_scale": None}
             length_cm = area_m2 = None
+            cam_mm_per_px = cam_band = None
             if mm_per_px is not None:
                 scaled = shape_mod.apply_scale(sd, mm_per_px)
                 length_cm = scaled["length_cm"]
                 area_m2 = scaled["area_m2"]
                 metric.update(available=True, confidence=ref.confidence,
-                              error_band_pct=ref.error_band_pct, **scaled)
+                              error_band_pct=ref.error_band_pct,
+                              scale_source="reference", **scaled)
+            elif cam_geom is not None:
+                cam_m, cam_def_err = plane_scale.defect_ground_metrics(
+                    mask, cam_geom, cs)
+                if cam_m is None:
+                    cam_refusals[cam_def_err] += 1
+                else:
+                    cam_mm_per_px = cam_m["mm_per_px_transverse"]
+                    cam_band = cam_m["scale_band_pct"]
+                    length_cm = cam_m["feret_max_cm"]
+                    area_m2 = cam_m["area_m2"]
+                    metric.update(
+                        available=True, confidence="low",
+                        error_band_pct=cam_band,
+                        equivalent_diameter_cm=cam_m["equivalent_diameter_cm"],
+                        length_cm=cam_m["feret_max_cm"],
+                        width_cm=cam_m["feret_min_cm"],
+                        area_cm2=cam_m["area_cm2"],
+                        area_m2=cam_m["area_m2"],
+                        scale_source="camera_height",
+                        camera_scale={
+                            "horizon_method": cam_geom.horizon_method,
+                            "theta_deg": round(cam_geom.theta_deg, 2),
+                            "dist_ground_m": cam_m["dist_ground_m"],
+                            "mm_per_px_transverse":
+                                cam_m["mm_per_px_transverse"],
+                            "pitch_band_pct": cam_m["pitch_band_pct"],
+                            "f_source": cam_geom.f_source,
+                            "certifiable": False,
+                            "note": ("Оценка от высоты камеры: размеры — это "
+                                     "размер МАСКИ дефекта (включая тёмный "
+                                     "ореол), не рулеточного «разрушения»; "
+                                     "не для актирования."),
+                        })
 
-            # 5) относительная глубина (опц.)
+            # 5) относительная глубина (опц.) + честная см-ОЦЕНКА (не измерение:
+            #    depth_cm остаётся null, оценка живёт отдельным блоком со своей
+            #    полосой и confidence='low' — запрос заказчика 2026-07-14)
             if self.depth is not None:
                 d = self.depth.relative_bucket(img, mask)
                 metric["depth_bucket"] = d.get("depth_bucket")
                 metric["depth_method"] = d.get("method")
+                # mm/px для оценки: эталон главнее; иначе — высота камеры
+                # (per-defect, у самой ямы) со СВОЕЙ полосой.
+                est_mm = mm_per_px if mm_per_px is not None else cam_mm_per_px
+                metric["depth_cm_estimate"] = depth_mod.estimate_depth_cm(
+                    d, est_mm,
+                    scale_error_band_pct=(ref.error_band_pct
+                                          if ref.available else cam_band),
+                    cfg=self.cfg)
 
-            # 6) серьёзность по ГОСТ
+            # 6) серьёзность по ГОСТ; размеры от высоты камеры — с явной
+            #    атрибуцией в примечании (ревью 2026-07-16: «длина превышает»
+            #    от низкоуверенной оценки читалось как установленный факт)
             verdict = severity_mod.classify(
                 length_cm=length_cm, area_m2=area_m2, depth_cm=None,
                 road_category=self.road_category,
             )
+            sev = _attribute_severity(verdict.to_dict(),
+                                      metric.get("scale_source"))
 
             defects.append({
                 "id": i,
@@ -181,9 +289,14 @@ class DefectPipeline:
                 "mask_rle": report_mod.mask_to_rle(mask),
                 "shape": sd.to_dict(),
                 "metric": metric,
-                "severity": verdict.to_dict(),
+                "severity": sev,
             })
             masks.append(mask)
+
+        if cam_refusals:
+            warnings.append("Масштаб от высоты камеры: отказ по дефектам — "
+                            + ", ".join(f"{k}×{v}" for k, v
+                                        in cam_refusals.most_common()) + ".")
 
         report = report_mod.build_report(
             image_name=image_path.name, image_size_px=(W, H), mode=mode,
@@ -237,7 +350,20 @@ class DefectPipeline:
                 length_cm=fused.length_cm, area_m2=fused.area_m2,
                 depth_cm=None, road_category=self.road_category)
             defects[idx] = {**defects[idx], "metric": fused.to_dict(),
-                            "severity": verdict.to_dict()}
+                            "severity": _attribute_severity(
+                                verdict.to_dict(), fused.scale_source)}
+            # Глубина — величина ОДНОГО вида: fusion её не сливает (встречные
+            # косые кадры ≠ Сценарий C), но уже посчитанные на виде A бакет и
+            # см-ОЦЕНКУ честно переносим в fused metric с пометкой источника —
+            # иначе pair-отчёт молча терял бы глубину вида A (2026-07-14).
+            da_m = da.get("metric") or {}
+            if (da_m.get("depth_bucket") is not None
+                    or da_m.get("depth_cm_estimate")):
+                defects[idx]["metric"].update(
+                    depth_bucket=da_m.get("depth_bucket"),
+                    depth_method=da_m.get("depth_method"),
+                    depth_cm_estimate=da_m.get("depth_cm_estimate"),
+                    depth_source="view_a")
             # Перерисовать overlay вида A с fused-метрикой: числа на картинке
             # обязаны совпадать с JSON под тем же стемом (до-слиянный размер
             # уже впечатан в пиксели старого overlay).
@@ -267,8 +393,10 @@ class DefectPipeline:
                                  if fused is not None and fused.available else None),
             "per_view": [_view_summary(name_a, rep_a, da, sa),
                          _view_summary(name_b, rep_b, db, sb)],
-            "note": ("Глубина в см НЕ выдаётся: два косых кадра — это не Сценарий C "
-                     "(SfM с известной базой). Только площадь скорректирована за наклон."),
+            "note": ("Сертифицируемая глубина в см НЕ выдаётся: два косых кадра — "
+                     "это не Сценарий C (SfM с известной базой). Только площадь "
+                     "скорректирована за наклон; при --depth в metric переносится "
+                     "явно помеченная ОЦЕНКА глубины вида A (depth_source)."),
         }
 
         report = report_mod.build_report(

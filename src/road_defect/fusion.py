@@ -108,6 +108,12 @@ class ViewMeasurement:
     tilt_deg: float | None = None
     error_band_pct: float | None = None
     confidence: str | None = None
+    # Источник масштаба вида: 'reference' | 'camera_height' | None (старые
+    # отчёты). От него зависит право на промоушен уверенности при слиянии и
+    # провенанс fused-метрики (ревью 2026-07-16: без прокидки pair-режим
+    # терял пометку «оценка» и отмывал low до medium).
+    scale_source: str | None = None
+    camera_scale: dict | None = None
     eccentricity: float | None = None
     solidity: float | None = None
 
@@ -129,6 +135,8 @@ class ViewMeasurement:
             tilt_deg=m.get("view_tilt_deg"),
             error_band_pct=m.get("error_band_pct"),
             confidence=m.get("confidence"),
+            scale_source=m.get("scale_source"),
+            camera_scale=m.get("camera_scale"),
             eccentricity=sh.get("eccentricity"),
             solidity=sh.get("solidity"),
         )
@@ -145,6 +153,10 @@ class FusedMeasurement:
     area_m2: float | None = None
     confidence: str | None = None
     error_band_pct: float | None = None
+    # Провенанс масштаба: 'reference' | 'camera_height' | 'mixed' | None.
+    # camera_scale — диагностика источника «высота камеры» (вид-носитель).
+    scale_source: str | None = None
+    camera_scale: dict | None = None
     cross_view: dict = field(default_factory=dict)
     note: str = ""
 
@@ -169,6 +181,8 @@ class FusedMeasurement:
             "confidence": self.confidence,
             "error_band_pct": self.error_band_pct,
             "view_tilt_deg": None,  # per-view наклоны — в cross_view ниже
+            "scale_source": self.scale_source,
+            "camera_scale": self.camera_scale,
             "cross_view": self.cross_view,
         }
 
@@ -249,16 +263,25 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
 
     base_conf = _worse(a.confidence, b.confidence)
     either_low = "low" in (a.confidence, b.confidence)
+    # Масштаб от высоты камеры: два таких вида делят систематику источника
+    # (H, f, семантика маски-ореола), а смешанная пара «эталон+камера» не
+    # должна отмывать low-оценку до medium (адверсариальное ревью 2026-07-16:
+    # allow_promote по tilt эталонного вида повышал camera-числа до medium).
+    camera_involved = "camera_height" in (a.scale_source, b.scale_source)
     # Повышение уверенности оправдано лишь НЕЗАВИСИМЫМ согласием: хотя бы один вид
     # с ИЗВЕСТНЫМ наклоном (люк). Два вида по ОДНОЙ разметке (tilt=None в обоих)
     # делят один и тот же систематический сдвиг класса ширины — их согласие
     # неинформативно и НЕ должно повышать уверенность (ревью 2026-06-20).
-    allow_promote = (a.tilt_deg is not None) or (b.tilt_deg is not None)
+    allow_promote = (((a.tilt_deg is not None) or (b.tilt_deg is not None))
+                     and not camera_involved)
 
     note = ("length/width — нижняя оценка (макс сырых, не скорректированы за наклон); "
             + ("площадь скорректирована за наклон."
                if area_tilt_corrected else
-               "наклон неизвестен — площадь НЕ скорректирована, полоса расширена."))
+               ("площади camera-видов уже де-ракурсные (лучевая проекция на "
+                "полотно), поправка за наклон не применяется; полоса расширена."
+                if camera_involved else
+                "наклон неизвестен — площадь НЕ скорректирована, полоса расширена.")))
 
     # Полоса НИКОГДА не уже ХУДШЕГО одиночного вида: синфазное смещение наклона
     # слиянием не убирается — выгода идёт в уверенность, не в полосу (док модуля).
@@ -289,6 +312,24 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
     note += (f" Полоса ошибки: ±{band:.0f}% линейные размеры, "
              f"±{band_area:.0f}% площадь.")
 
+    # Провенанс: camera_height не бывает увереннее low — слияние не отмывает
+    # оценку; диагностика источника переносится из вида-носителя.
+    cam_diag = None
+    if camera_involved:
+        conf = "low"
+        fused_source = ("camera_height"
+                        if {a.scale_source, b.scale_source} == {"camera_height"}
+                        else "mixed")
+        for vm in (a, b):
+            if vm.scale_source == "camera_height" and vm.camera_scale:
+                cam_diag = {**vm.camera_scale, "from_view": vm.image_name}
+                break
+        note += (" Участвует масштаб от высоты камеры — размеры остаются "
+                 "ОЦЕНКОЙ (confidence=low, не для актирования).")
+    else:
+        fused_source = (a.scale_source if a.scale_source == b.scale_source
+                        else (a.scale_source or b.scale_source))
+
     cross_view = {
         "n_views": 2,
         "matched": True,
@@ -301,6 +342,7 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
         "shape_divergence": round(shape_div, 3),
         "per_view_area_cm2": [round(aa, 1), round(ab, 1)],
         "per_view_tilt_deg": [a.tilt_deg, b.tilt_deg],
+        "per_view_scale_sources": [a.scale_source, b.scale_source],
         "per_view_images": [a.image_name, b.image_name],
         "agreement": agreement,
         # Флаг отражает ФАКТИЧЕСКОЕ повышение (conf строго выше base_conf), а не
@@ -323,6 +365,8 @@ def fuse_pair(a: ViewMeasurement, b: ViewMeasurement,
         area_m2=area_m2,
         confidence=conf,
         error_band_pct=round(band, 1),
+        scale_source=fused_source,
+        camera_scale=cam_diag,
         cross_view=cross_view,
         note=note,
     )

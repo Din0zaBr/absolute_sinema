@@ -131,8 +131,22 @@ def draw_overlay(image_bgr: np.ndarray, defects: list, masks: list,
         metric = d.get("metric", {})
         if metric.get("available") and metric.get("equivalent_diameter_cm") is not None:
             size_txt = f"~{metric['equivalent_diameter_cm']}cm"
+            # Оценка от высоты камеры маркируется на КАРТИНКЕ (est(H)): JPG
+            # уходит в презентации без JSON, и немаркированные см читались бы
+            # как эталонный замер (память проекта; ревью 2026-07-16).
+            if metric.get("scale_source") in ("camera_height", "mixed"):
+                size_txt += " est(H)"
         else:
             size_txt = f"{int(d['shape']['equivalent_diameter_px'])}px"
+        # Глубина: см-ОЦЕНКА помечается '~'/'<' и словом est (шрифт Hershey не
+        # умеет кириллицу); без оценки — хотя бы относительный бакет.
+        est = metric.get("depth_cm_estimate") or {}
+        if est.get("available") and est.get("point_cm") is not None:
+            size_txt += f" d~{est['point_cm']:g}cm est"
+        elif est.get("available") and est.get("upper_bound_cm") is not None:
+            size_txt += f" d<{est['upper_bound_cm']:g}cm est"
+        elif metric.get("depth_bucket"):
+            size_txt += f" d:{metric['depth_bucket']}"
         label = f"{d['class']} {d['confidence']:.2f} {size_txt}"
         cv2.rectangle(vis, (x, y), (x + w, y + h), color, 3)
         _label(vis, label, x, y, color)

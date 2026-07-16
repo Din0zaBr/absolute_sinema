@@ -145,13 +145,28 @@ AGPL: до коммерческого релиза инференс перево
 
 ## Пересборка демо-отчёта после нового прогона
 
+`outputs_demo\demo_report.html` — это **презентация-слайд-дек** (тёмная тема, как
+`docs\presentation.html`: много картинок, мало текста, ← → листают, F — во весь
+экран). Её собирает `scripts\make_demo_deck.py`. Ядро — съёмка одной ямы с двух
+сторон (`--pair`): честная городская пара без эталона (`two_view_unmatched`, см не
+выдумываются) и контролируемый кадр с люком (`two_view_fused`, см со слиянием).
+
 ```powershell
 $env:PYTHONPATH="src"
 .\.venv\Scripts\python.exe -m road_defect.cli --input <папка с фото> --output outputs_demo --depth
-# опц. слияние двух видов одной ямы (попадёт отдельной карточкой в отчёт):
-.\.venv\Scripts\python.exe -m road_defect.cli --pair <фото_впереди> <фото_позади> --output outputs_demo
-.\.venv\Scripts\python.exe scripts\make_demo_report.py --outputs outputs_demo --originals <папка с фото>
+# слайд «слабость показана и устранена» опирается на second-pass ---ensemble по 6dyN;
+# кладём его аннотацию рядом как *_ensemble_annotated.jpg / *_ensemble.json:
+.\.venv\Scripts\python.exe -m road_defect.cli --input <только 6dyN> --output outputs_demo --ensemble
+.\.venv\Scripts\python.exe scripts\make_demo_deck.py
 # результат: outputs_demo\demo_report.html — один автономный файл, можно отправить кому угодно
+```
+
+Подробный отчёт-таблица (для чтения, а не показа) по-прежнему собирает
+`scripts\make_demo_report.py` — направьте его в отдельный файл, чтобы не затирать дек:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\make_demo_report.py --outputs outputs_demo `
+  --originals <папка с фото> --out outputs_demo\demo_report_full.html
 ```
 
 ## Контролируемое демо см-измерения и слияния (когда нет фото с эталоном)

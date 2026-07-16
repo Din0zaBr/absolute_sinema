@@ -1,8 +1,15 @@
 """Относительная глубина дефекта (опционально, Сценарий A/B).
 
-ВАЖНО (честность): этот модуль НИКОГДА не выдаёт глубину в сантиметрах. Только
-относительный бакет «shallow|medium|deep» как индикатор приоритета. Достоверная
+ВАЖНО (честность): этот модуль НИКОГДА не выдаёт ИЗМЕРЕННУЮ глубину в
+сантиметрах (metric.depth_cm всегда null, depth_certifiable=False). Достоверная
 см-глубина — только Сценарий C (photogrammetry.py) или датчик глубины.
+Помимо бакета «shallow|medium|deep» модуль умеет давать явно помеченную
+ОЦЕНКУ глубины в см (estimate_depth_cm, запрос заказчика 2026-07-14):
+rel_norm ≈ dz/W (см. п.5 ниже) × поперечная ширина W в см ≈ dz; источник
+mm/px — эталон (scale.py) или высота камеры (plane_scale.py, 2026-07-16),
+провенанс — metric.scale_source. Оценка всегда confidence='low' с широкой
+полосой; без ИСТОЧНИКА масштаба сантиметры НЕ выдаются (ложный масштаб хуже
+отсутствия масштаба).
 
 Использует Depth Anything V2 Small через transformers, если доступен; иначе no-op.
 
@@ -117,6 +124,18 @@ class RelativeDepth:
             self._frame_key = key
         return self._depth_map
 
+    def frame_depth(self, image_bgr: np.ndarray) -> np.ndarray | None:
+        """Публичный доступ к сырой карте глубины кадра (кэш — см. _frame_depth).
+
+        None, если модель недоступна. Нужен plane_scale.py (масштаб от высоты
+        камеры): горизонт оценивается по той же карте, что и бакеты, — один
+        инференс на кадр.
+        """
+        self._load()
+        if not self.available:
+            return None
+        return self._frame_depth(image_bgr)
+
     def relative_bucket(self, image_bgr: np.ndarray, mask: np.ndarray) -> dict:
         """Относительная глубина дефекта vs окружающее покрытие.
 
@@ -142,6 +161,10 @@ class RelativeDepth:
         if s < 1.0:
             depth = cv2.resize(depth, (int(round(wd * s)), int(round(hd * s))),
                                interpolation=cv2.INTER_AREA)
+        # Перевод пиксельных величин сетки карты в пиксели ИСХОДНОГО кадра
+        # (mm_per_px эталона задан в исходных px). Аспект сохраняется обоими
+        # ресайзами — достаточно отношения ширин.
+        result["_px_scale_to_orig"] = float(image_bgr.shape[1]) / depth.shape[1]
         m = mask_to_depth_grid(np.asarray(mask) > 0, depth.shape)
         if not m.any():
             # Маска исчезла при переводе в сетку карты (тонкая трещина):
@@ -238,17 +261,13 @@ def ring_plane_bucket(depth: np.ndarray, m: np.ndarray,
         # тонкая маска (трещина): эрозия опустошила ядро — верхний квартиль
         drop = float(np.percentile(_plane_minus_depth(m), 75))
 
-    if drop < noise_gate * sigma:
-        # Просадка неотличима от шероховатости покрытия — честный shallow.
-        return {"depth_bucket": "shallow",
-                "method": "depth_anything_v2_small_ring_plane:below_local_noise",
-                "_rel_norm": 0.0, "_sigma": round(sigma, 5),
-                "_drop": round(drop, 5)}
-
     # 3) Линейка: перепад плоскости на ПОПЕРЕЧНОЙ ширине маски (проекция
     #    пикселей маски на перпендикуляр к градиенту; поперечная ширина не
     #    сжимается ракурсом — см. док модуля, ревью 2026-07-03). При
     #    нормированных координатах градиент на пиксель = (a/W, b/H).
+    #    Считается ДО ворот шума: ветке below_local_noise линейка нужна для
+    #    честной ВЕРХНЕЙ границы глубины (estimate_depth_cm), сами ворота и
+    #    порядок отказов не меняются (запрос см-оценки 2026-07-14).
     gx, gy = coef[0] / W, coef[1] / H
     gn = float(np.hypot(gx, gy))
     ym, xm = np.nonzero(m)
@@ -258,19 +277,132 @@ def ring_plane_bucket(depth: np.ndarray, m: np.ndarray,
     else:
         width_px = 0.0
     ruler = gn * width_px
+    ruler_resolvable = ruler >= noise_gate * sigma / hi
+
+    if drop < noise_gate * sigma:
+        # Просадка неотличима от шероховатости покрытия — честный shallow.
+        # _rel_upper — минимально РАЗРЕШИМЫЙ rel_norm (просадка ровно на
+        # воротах): реальный rel_norm ямы ниже него → верхняя граница глубины.
+        # При вырожденной линейке границы нет (None), fabricate нечего.
+        rel_upper = (float(noise_gate * sigma / ruler)
+                     if ruler_resolvable else None)
+        return {"depth_bucket": "shallow",
+                "method": "depth_anything_v2_small_ring_plane:below_local_noise",
+                "_rel_norm": 0.0, "_sigma": round(sigma, 5),
+                "_drop": round(drop, 5), "_ruler": round(ruler, 6),
+                "_width_px": round(width_px, 1),
+                "_rel_upper": (round(rel_upper, 4)
+                               if rel_upper is not None else None)}
 
     # Ворота разрешимости: если deep-порог линейки ниже пола шума (drop ≥ 3σ
     # уже гарантированы воротами выше), «deep» был бы тождеством, а не
     # измерением — честный отказ (надир, слабая перспектива, вырожденная
     # маска). Ревью 2026-07-03: текстурная линейка max(…, 3σ) всегда давала
     # deep и была удалена.
-    if ruler < noise_gate * sigma / hi:
+    if not ruler_resolvable:
         return {"depth_bucket": None, "method": "degenerate_local_ruler",
-                "_sigma": round(sigma, 5), "_drop": round(drop, 5)}
+                "_sigma": round(sigma, 5), "_drop": round(drop, 5),
+                "_ruler": round(ruler, 6), "_width_px": round(width_px, 1)}
 
     rel_norm = float(np.clip(drop / ruler, 0.0, _REL_NORM_CAP))
     bucket = ("shallow" if rel_norm < lo
               else "deep" if rel_norm > hi else "medium")
     return {"depth_bucket": bucket, "method": "depth_anything_v2_small_ring_plane",
             "_rel_norm": round(rel_norm, 4), "_sigma": round(sigma, 5),
-            "_drop": round(drop, 5)}
+            "_drop": round(drop, 5), "_ruler": round(ruler, 6),
+            "_width_px": round(width_px, 1)}
+
+
+# --- Оценка глубины в сантиметрах (запрос заказчика 2026-07-14) ---------------
+_EST_NOTE = ("Оценка, НЕ измерение: rel_norm (относительная карта глубины) x "
+             "поперечная ширина ямы в см (по доступному источнику масштаба — "
+             "см. metric.scale_source: эталон или высота камеры). Погрешность "
+             "велика; для акта нужен ручной замер или two-view съёмка "
+             "(Сценарий C).")
+
+
+def estimate_depth_cm(bucket_result: dict, mm_per_px: float | None,
+                      scale_error_band_pct: float | None = None,
+                      cfg: config.InferenceConfig = config.DEFAULT_INFERENCE) -> dict:
+    """Честная ОЦЕНКА глубины дефекта в см из результата ring_plane_bucket.
+
+    Физика: rel_norm ≈ dz/W (глубина / ПОПЕРЕЧНАЯ ширина; дистанция, зум,
+    высота камеры и аффинные k,s карты сокращаются — см. док модуля), а
+    поперечная ширина не сжимается ракурсом, значит W_см ≈ width_px · mm/px.
+    Отсюда dz ≈ rel_norm · W_см. Для просадки ниже шума карты выдаётся только
+    ВЕРХНЯЯ граница (реальный rel_norm ниже минимально разрешимого).
+
+    Гейты честности (available=False + reason, никаких чисел):
+      - нет эталона масштаба (mm_per_px=None) — см выдумать нельзя;
+      - глубинного сигнала нет (отказы ring_plane_bucket) — оценивать нечего;
+      - линейка вырождена (надир/слабая перспектива) — даже граница не имеет
+        смысла.
+
+    Оценка ВСЕГДА confidence='low' и certifiable=False: mm/px от эталона
+    измерен у эталона, а не у ямы (перспективный перенос — та же оговорка,
+    что у length_cm/area); mm/px от высоты камеры — поперечный у самой ямы,
+    но несёт полосу источника; сам rel_norm шумный. Полоса ошибки —
+    мультипликативная: [point/(1+b), point*(1+b)],
+    b = (базовая + полоса источника масштаба)/100.
+
+    Чистая функция: только словарь + числа, тестируется без модели.
+    """
+    est = {"available": False, "point_cm": None, "low_cm": None,
+           "high_cm": None, "upper_bound_cm": None, "method": None,
+           "confidence": None, "certifiable": False, "vs_gost_5cm": None,
+           "reason": None, "note": _EST_NOTE}
+    if not cfg.depth_cm_estimate_enabled:
+        est["reason"] = "disabled"
+        return est
+
+    method = bucket_result.get("method") or ""
+    width_px = bucket_result.get("_width_px")
+    if width_px is None:
+        # Отказы до линейки: unavailable / mask_below_depth_resolution /
+        # no_ring_support — глубинного сигнала нет, честно передаём причину.
+        est["reason"] = method or "no_depth_signal"
+        return est
+    if mm_per_px is None or not np.isfinite(mm_per_px) or mm_per_px <= 0:
+        est["reason"] = "no_scale_reference"
+        return est
+
+    # ring_plane_bucket мог быть вызван и напрямую (синтетика/калибровка) —
+    # тогда карта уже в пикселях исходного кадра, множитель 1.
+    k = bucket_result.get("_px_scale_to_orig") or 1.0
+    width_cm = float(width_px) * float(k) * float(mm_per_px) / 10.0
+    if not np.isfinite(width_cm) or width_cm <= 0:
+        est["reason"] = "degenerate_width"
+        return est
+
+    band = (cfg.depth_cm_est_base_err_pct
+            + (scale_error_band_pct if scale_error_band_pct is not None
+               else 30.0)) / 100.0
+    gost = config.GOST50597_MAX_DEPTH_CM
+
+    if method.endswith("below_local_noise"):
+        rel_upper = bucket_result.get("_rel_upper")
+        if rel_upper is None:
+            est["reason"] = "below_noise_unresolvable_ruler"
+            return est
+        # Верхняя граница расширяется полосой ВВЕРХ (консервативно): ниже неё
+        # глубина «по оценке», точки нет — просадка неотличима от шероховатости.
+        ub = float(rel_upper) * width_cm * (1.0 + band)
+        est.update(available=True, upper_bound_cm=round(ub, 1),
+                   method="below_noise_upper_bound", confidence="low",
+                   vs_gost_5cm="below" if ub < gost else "uncertain")
+        return est
+
+    rel = bucket_result.get("_rel_norm")
+    if rel is None or bucket_result.get("depth_bucket") is None:
+        # degenerate_local_ruler и прочие отказы с посчитанной шириной.
+        est["reason"] = method or "no_depth_signal"
+        return est
+
+    point = float(rel) * width_cm
+    low, high = point / (1.0 + band), point * (1.0 + band)
+    est.update(available=True, point_cm=round(point, 1),
+               low_cm=round(low, 1), high_cm=round(high, 1),
+               method="rel_norm_x_transverse_width", confidence="low",
+               vs_gost_5cm=("above" if low >= gost
+                            else "below" if high < gost else "uncertain"))
+    return est

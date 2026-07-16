@@ -153,6 +153,86 @@ SEGMENTER_ULTRALYTICS = ModelCandidate(
 DEPTH_MODEL_HF_ID = "depth-anything/Depth-Anything-V2-Small-hf"
 
 
+# --- Масштаб от высоты камеры (эксперимент 2026-07-16) -----------------------
+@dataclass
+class CameraHeightScaleConfig:
+    """ОЦЕНОЧНЫЙ источник масштаба для кадров БЕЗ эталона: известная высота
+    объектива над полотном + фокус из EXIF + горизонт, оцененный по карте
+    глубины («якорь неба») или из приора тангажа (plane_scale.py).
+
+    Валидация и границы применимости — docs/HEIGHT_SCALE_RESULTS.md:
+    систематики масштаба не выявлено в пределах ~±10–15% (n=1 объект
+    известного размера; приёмочной валидации НЕТ), а Д/Ш — это размер
+    МАСКИ (включая тёмный ореол), не рулеточного «разрушения». По ТЗ v2 §2.1
+    источник НЕ сертифицируем: размеры выдаются только с confidence='low',
+    certifiable=false и полосой ошибки. Требует карту глубины (--depth).
+    """
+    height_m: float | None = None    # высота объектива над полотном; None = ВЫКЛ
+    height_band_pct: float = 3.0     # неопределённость высоты (съёмка в полный рост)
+    # Фокус в px исходного кадра; None -> пересчёт из EXIF FocalLengthIn35mmFilm
+    # (f_px = fl35 * длинная_сторона / 36). Кроп-режимы смартфона делают
+    # пересчёт неоднозначным — отсюда широкая полоса по умолчанию.
+    f_px: float | None = None
+    f_band_pct: float = 10.0
+    # Fallback-приор тангажа для кадров без неба (дворы): типично медиана
+    # sky-anchored кадров той же сессии съёмки. None = только «якорь неба».
+    pitch_prior_deg: float | None = None
+    pitch_prior_band_deg: float = 3.0
+    # --- гейты оценки горизонта по карте глубины (см. plane_scale.py) -------
+    grid_long_side: int = 1024       # рабочая сетка карты (аспект — от кадра)
+    sky_top_frac: float = 0.45       # небо ищем в верхней доле кадра
+    sky_band_frac: float = 0.05      # «небо» = нижние 5% диапазона карты
+    # Мин. поддержка неба в АБСОЛЮТНЫХ px сетки: на родной ~518-сетке модели
+    # гейт по доле кадра строже, чем на 1024 (ошибка в безопасную сторону —
+    # чаще честный отказ; ревью 2026-07-16).
+    sky_min_px: int = 1500
+    road_row_lo_frac: float = 0.50   # опора плоскости — строки [lo..hi] высоты
+    road_row_hi_frac: float = 0.97
+    plane_min_support: int = 3000
+    plane_max_subsample: int = 40000
+    plane_reweight_iters: int = 3
+    horizon_sys_grid_px: float = 15.0  # систематика якоря неба (~1° при f/4)
+    pitch_min_deg: float = 4.0
+    pitch_max_deg: float = 55.0
+    roll_max_deg: float = 8.0
+    # --- гейты дефекта -------------------------------------------------------
+    pit_min_below_horizon_deg: float = 2.0  # контур ближе к горизонту — отказ
+    max_ground_dist_m: float = 12.0         # дальше — полоса теряет смысл
+    contour_max_pts: int = 3000
+
+    @property
+    def enabled(self) -> bool:
+        return self.height_m is not None
+
+    def __post_init__(self):
+        if self.height_m is not None and not (0.2 <= self.height_m <= 5.0):
+            raise ValueError("camera_scale.height_m вне [0.2, 5.0] м: "
+                             f"{self.height_m}")
+        if self.f_px is not None and self.f_px <= 0:
+            raise ValueError(f"camera_scale.f_px должен быть > 0: {self.f_px}")
+        if not (0.0 < self.pitch_min_deg < self.pitch_max_deg <= 89.0):
+            raise ValueError("camera_scale: требуется 0 < pitch_min < pitch_max "
+                             f"<= 89, получено {self.pitch_min_deg}/"
+                             f"{self.pitch_max_deg}")
+        if self.pitch_prior_deg is not None and not (
+                self.pitch_min_deg <= self.pitch_prior_deg <= self.pitch_max_deg):
+            raise ValueError("camera_scale.pitch_prior_deg вне "
+                             f"[{self.pitch_min_deg}, {self.pitch_max_deg}]: "
+                             f"{self.pitch_prior_deg}")
+        if min(self.height_band_pct, self.f_band_pct,
+               self.pitch_prior_band_deg) < 0:
+            raise ValueError("camera_scale: полосы ошибок должны быть >= 0")
+        if not (0.0 < self.road_row_lo_frac < self.road_row_hi_frac <= 1.0):
+            raise ValueError("camera_scale: требуется 0 < road_row_lo_frac < "
+                             "road_row_hi_frac <= 1")
+        if self.max_ground_dist_m <= 0 or self.grid_long_side < 64:
+            raise ValueError("camera_scale: max_ground_dist_m > 0 и "
+                             "grid_long_side >= 64 обязательны")
+
+
+DEFAULT_CAMERA_SCALE = CameraHeightScaleConfig()
+
+
 # --- Пороги инференса -------------------------------------------------------
 @dataclass
 class InferenceConfig:
@@ -204,6 +284,16 @@ class InferenceConfig:
     depth_bucket_lo: float = 0.08        # ниже — shallow
     depth_bucket_hi: float = 0.35        # выше — deep
     depth_noise_gate_sigma: float = 3.0  # просадка < N*σ шероховатости — не сигнал
+    # --- Оценка глубины в см (запрос заказчика 2026-07-14) --------------------
+    # depth_cm_estimate = rel_norm × поперечная ширина ямы в см. Это ОЦЕНКА
+    # (confidence всегда 'low', certifiable=False), НЕ измерение: физика
+    # rel_norm ≈ dz/W честная (см. depth.py), но точность ограничена картой
+    # Depth Anything и переносом mm/px от эталона к яме. Сертифицированная
+    # depth_cm по-прежнему только из two-view (photogrammetry.py) / датчика.
+    depth_cm_estimate_enabled: bool = True
+    # Базовая относительная погрешность самого rel_norm (шум карты, протечки
+    # маски, приближения pinhole-вывода); к ней добавляется полоса эталона.
+    depth_cm_est_base_err_pct: float = 50.0
     # Эталон по тёмному эллипс-блобу (косой вид): выключен по умолчанию —
     # на реальном фото тень под бордюром прошла все фильтры и стала «люком».
     # Включать только после «золотой» валидации масштаба (§11).
@@ -269,6 +359,13 @@ class InferenceConfig:
     # линейный эквивалент (половина).
     fusion_uncorrected_area_band_pct: float = 40.0
 
+    # --- Масштаб от высоты камеры (fallback без эталона; plane_scale.py) ----
+    # ВЫКЛЮЧЕН по умолчанию (height_m=None). Включается осознанно, когда
+    # высота съёмки известна (CLI --camera-height). Все пороги — в
+    # CameraHeightScaleConfig выше.
+    camera_scale: CameraHeightScaleConfig = field(
+        default_factory=CameraHeightScaleConfig)
+
     def __post_init__(self):
         # Новые ручки цикла 13 валидируются при создании конфига: вырожденная
         # опора/пороги бакета падали бы делением на нуль на КАЖДОМ кадре с
@@ -283,6 +380,9 @@ class InferenceConfig:
         if self.depth_noise_gate_sigma < 0:
             raise ValueError("depth_noise_gate_sigma должен быть >= 0, получено "
                              f"{self.depth_noise_gate_sigma}")
+        if self.depth_cm_est_base_err_pct < 0:
+            raise ValueError("depth_cm_est_base_err_pct должен быть >= 0, "
+                             f"получено {self.depth_cm_est_base_err_pct}")
 
     def scaled_mask_min_area(self, base_px: int, image_hw) -> int:
         """Порог площади маски для кадра (H, W): только ВНИЗ от base_px.

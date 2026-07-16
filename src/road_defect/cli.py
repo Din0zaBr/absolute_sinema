@@ -229,15 +229,42 @@ def main(argv=None) -> int:
                     help="эталон по дорожной разметке (экспериментально, OFF по умолчанию: "
                          "класс ширины разметки по одному штриху неоднозначен → "
                          "low-confidence, требует подтверждения люком; см. PROJECT.md §4.4)")
+    ap.add_argument("--camera-height", type=float, default=None, metavar="М",
+                    help="ОЦЕНОЧНЫЙ масштаб от высоты объектива над полотном, "
+                         "в метрах (например 1.70): даёт см для размеров и "
+                         "оценки глубины на кадрах БЕЗ эталона; размеры "
+                         "помечаются confidence=low, certifiable=false "
+                         "(не для актирования, ТЗ §2.1). Требует карту "
+                         "глубины — --depth включается автоматически")
+    ap.add_argument("--pitch-prior", type=float, default=None, metavar="ГРАД",
+                    help="приор тангажа для кадров без неба (только вместе с "
+                         "--camera-height; например 11.6 — медиана съёмки "
+                         "стоя). Помечается horizon_method=prior_pitch")
     args = ap.parse_args(argv)
 
+    if args.pitch_prior is not None and args.camera_height is None:
+        ap.error("--pitch-prior имеет смысл только вместе с --camera-height")
+    use_depth = args.depth
+    if args.camera_height is not None and not use_depth:
+        use_depth = True
+        print("Масштаб от высоты камеры требует карту глубины — "
+              "--depth включён автоматически.")
+
     out = Path(args.output)
-    cfg = config.InferenceConfig(det_conf=args.conf,
-                                 allow_blob_reference=args.blob_ref,
-                                 ensemble_pothole=args.ensemble,
-                                 allow_curb_reference=args.curb_ref,
-                                 use_marking_reference=args.marking_ref)
-    pipe = DefectPipeline(cfg=cfg, use_depth=args.depth, road_category=args.road_category)
+    try:
+        cfg = config.InferenceConfig(det_conf=args.conf,
+                                     allow_blob_reference=args.blob_ref,
+                                     ensemble_pothole=args.ensemble,
+                                     allow_curb_reference=args.curb_ref,
+                                     use_marking_reference=args.marking_ref,
+                                     camera_scale=config.CameraHeightScaleConfig(
+                                         height_m=args.camera_height,
+                                         pitch_prior_deg=args.pitch_prior))
+    except ValueError as e:
+        # кривые --camera-height/--pitch-prior — аккуратная ошибка CLI,
+        # а не трейсбек из config.__post_init__ (ревью 2026-07-16)
+        ap.error(str(e))
+    pipe = DefectPipeline(cfg=cfg, use_depth=use_depth, road_category=args.road_category)
 
     if args.pair:
         return _run_pair(pipe, args.pair, out)
