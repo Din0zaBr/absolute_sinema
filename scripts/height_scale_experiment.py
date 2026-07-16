@@ -24,9 +24,11 @@
     из ПРИОРА тангажа (медиана sky-anchored видов этого же набора), roll=0.
     Это приор, а не измерение по кадру: метка horizon_method='prior_pitch',
     полоса масштаба расширена на чувствительность к ±band (по умолчанию ±3°).
-  * Общие сцены (одни и те же кадры у нескольких ям — md5) исключаются из
-    головной метрики: сопоставление «детекция ↔ конкретная яма GT» там
-    неоднозначно (память проекта: matched != re-ID).
+  * Общие сцены (один кадр у нескольких ям) исключаются из головной метрики:
+    сопоставление «детекция ↔ конкретная яма GT» там неоднозначно (память
+    проекта: matched != re-ID). Сцены берутся из journal.csv (колонка scene);
+    md5-дубли кадров — только fallback: после дедупа пар в ingest (2026-07-16)
+    дублей в local_pairs нет.
 
 Запуск (venv; при недоступном HF Hub ставьте $env:HF_HUB_OFFLINE="1" и
 $env:TRANSFORMERS_OFFLINE="1" — веса в кэше, иначе минуты ретраев):
@@ -36,6 +38,7 @@ $env:TRANSFORMERS_OFFLINE="1" — веса в кэше, иначе минуты 
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import sys
@@ -660,20 +663,33 @@ def main() -> None:
         want = set(args.pairs)
         jobs = [j for j in jobs if j[0] in want]
 
-    # GT span + общие сцены (md5 кадров)
+    # GT span + общие сцены. Первичный источник сцен — journal.csv (колонка
+    # scene: группа >1 ямы = общий кадр): после дедупа пар в ingest
+    # (2026-07-16) md5-дублей в local_pairs больше НЕТ, и детект по ним молча
+    # включил бы мультиямные сцены в GT-статистику (ревью цикла 18). md5
+    # оставлен fallback'ом для наборов без журнала.
     gt: dict[str, float] = {}
     if GT_PATH.exists():
         data = json.loads(GT_PATH.read_text(encoding="utf-8"))
         for p in data.get("pits", []):
             if p.get("span_cm") is not None:
                 gt[str(p["pit"])] = float(p["span_cm"])
+    scene_of: dict[str, str] = {}
+    journal = root.resolve().parent / "journal.csv"
+    if journal.exists():
+        with open(journal, encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                if r.get("id"):
+                    scene_of[r["id"]] = r.get("scene") or r["id"]
+    scene_sizes = Counter(scene_of.values())
     hash2pits: dict[str, set] = {}
     for name, pa, pb in jobs:
         for f in (pa, pb):
             if f.exists():
                 h = hashlib.md5(f.read_bytes()).hexdigest()
                 hash2pits.setdefault(h, set()).add(name)
-    shared = {name: any(name in s and len(s) > 1 for s in hash2pits.values())
+    shared = {name: (scene_sizes[scene_of[name]] > 1 if name in scene_of else
+                     any(name in s and len(s) > 1 for s in hash2pits.values()))
               for name, _, _ in jobs}
 
     pipe = DefectPipeline(use_depth=False)

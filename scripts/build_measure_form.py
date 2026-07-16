@@ -276,7 +276,10 @@ def main() -> int:
                 # (встраивание ужато; оригинал не дублируется в файл формы)
                 rulers.append({"uri": uri, "href": _rel_href(r, out_parent)})
         n_rulers += len(rulers)
-        front = next((pairs_dir / f / "front.jpg" for f in _pid_forms(pid)
+        # у ямы-дубля пары в local_pairs нет (ingest дедуплицирует по сценам,
+        # 2026-07-16) — миниатюра берётся из папки сцены-представителя
+        thumb_ids = list(_pid_forms(pid)) + list(_pid_forms(row.get("scene") or pid))
+        front = next((pairs_dir / f / "front.jpg" for f in thumb_ids
                       if (pairs_dir / f / "front.jpg").is_file()), None)
         thumb = _data_uri(front, args.thumb_px, 75) if front else None
         pits.append({**row, "rulers": rulers, "front_thumb": thumb})

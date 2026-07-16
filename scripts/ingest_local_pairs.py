@@ -2,7 +2,8 @@
 
 Вход  — папка выезда со структурой «Ямки/Яма N/{Front,Back,Эталоны}»
         (см. «Структура папок.txt» сборщика).
-Выход — datasets/local_pairs/NNN/front.jpg + back.jpg   (пары для --pairs-dir)
+Выход — datasets/local_pairs/NNN/front.jpg + back.jpg   (пары для --pairs-dir,
+                                                         ОДНА на сцену — см. ниже)
         datasets/gt_photos/NNN_ruler_K.jpg              (кадры с рулеткой, НЕ для обучения)
         datasets/journal.csv                            (черновик журнала §4: id, сцена,
                                                          дата, GPS из EXIF; замеры пустые)
@@ -11,6 +12,15 @@
 дублирует такой кадр по папкам соседних ям; группируем по md5). id сцены =
 наименьший id ямы группы. Нужна для честного recall по сценам и для
 train/val-сплита без утечки одинаковых кадров между сплитами.
+
+Пары ДЕДУПЛИЦИРОВАНЫ (2026-07-16): пара ямы не копируется, если И front, И back
+байт-идентичны паре уже обработанной ямы (представитель = наименьший id, как в
+prepare_local_finetune.scene_reps) — иначе статистика «по парам» искажается
+(48 папок ≈ 28 уникальных). Общий front при индивидуальном back — НЕ дубль,
+копируется под своим id. Рулетки индивидуальны и копируются для КАЖДОЙ ямы.
+Папки-дубли прежних прогонов убирает --prune-dups — удаляется только
+ПРОВЕРЕННЫЙ байтовый дубль (ровно front.jpg+back.jpg с md5 пары
+представителя), всё остальное не трогается с предупреждением.
 
 Копирует, не перемещает. Идемпотентен: существующий файл того же размера
 не перезаписывается (--force — перезаписать). Существующий journal.csv не
@@ -101,6 +111,9 @@ def main() -> int:
     ap.add_argument("--type", default="pothole", dest="defect_type",
                     help="грубый тип дефекта для журнала (§4)")
     ap.add_argument("--force", action="store_true", help="перезаписывать существующие файлы")
+    ap.add_argument("--prune-dups", action="store_true",
+                    help="удалить из local_pairs папки пар-дублей (остатки прежних "
+                         "прогонов); удаляется только проверенный байтовый дубль")
     args = ap.parse_args()
 
     source = Path(args.source)
@@ -132,7 +145,9 @@ def main() -> int:
     problems: list[str] = []   # жёсткие сбои -> exit 1 (пара пропущена/битая)
     notes: list[str] = []      # мягкие замечания, пара всё равно обработана
     rows: list[dict] = []
-    copied = skipped = 0
+    copied = skipped = dup_pairs = 0
+    pair_reps: dict[tuple[str, str], str] = {}   # (md5 front, md5 back) -> pid представителя
+    dup_of: dict[str, tuple[str, str, str]] = {}  # pid дубля -> (представитель, md5 front, md5 back)
     # Сборщик снимает группу соседних ям ОДНИМ общим кадром (front/back дублируются
     # по папкам ям, рулетки индивидуальны). Группируем по md5 front — это «сцены»
     # (см. док модуля); группы уходят в колонку scene журнала.
@@ -173,7 +188,23 @@ def main() -> int:
             else:
                 good_rulers.append((r, gt_root / f"{pid}_ruler_{k}.jpg"))
 
-        for src, dst in pair_plan + good_rulers:
+        # Дедуп пар: дубль — только когда И front, И back байт-совпадают с
+        # парой представителя (ревью цикла 18: дедуп по одному front молча
+        # терял бы уникальный back). pit_dirs отсортированы по номеру, значит
+        # первый носитель пары — наименьший id. Для дублей копируются только
+        # их индивидуальные рулетки; сцена (по front) при этом шире дубля:
+        # общий front с индивидуальным back копируется под своим id.
+        front_md5 = hashlib.md5(fronts[0].read_bytes()).hexdigest()
+        back_md5 = hashlib.md5(backs[0].read_bytes()).hexdigest()
+        scene_rep = front_md5s[front_md5][0] if front_md5s[front_md5] else None
+        front_md5s[front_md5].append(pid)
+        pair_rep = pair_reps.setdefault((front_md5, back_md5), pid)
+        is_dup = pair_rep != pid
+        if is_dup:
+            dup_pairs += 1
+            dup_of[pid] = (pair_rep, front_md5, back_md5)
+        plan = good_rulers if is_dup else pair_plan + good_rulers
+        for src, dst in plan:
             if _copy(src, dst, args.force) == "copy":
                 copied += 1
             else:
@@ -182,7 +213,14 @@ def main() -> int:
         exif = _exif(fronts[0])
         dt = str(exif.get("DateTimeOriginal", ""))
         date = dt.split(" ")[0].replace(":", "-") if dt else ""
-        front_md5s[hashlib.md5(fronts[0].read_bytes()).hexdigest()].append(pid)
+        if is_dup:
+            note_pair = (f"; пара — байтовый дубль пары {pair_rep}, "
+                         "в local_pairs не копируется")
+        elif scene_rep is not None:
+            note_pair = (f"; front общий со сценой {scene_rep}, back "
+                         "индивидуальный — пара скопирована под своим id")
+        else:
+            note_pair = ""
         rows.append({
             "id": pid,
             "scene": "",  # заполняется ниже, когда известны все группы
@@ -191,12 +229,52 @@ def main() -> int:
             "type": args.defect_type,
             "length_cm": "", "width_cm": "", "depth_cm": "",
             "reference_in_frame": "", "weather": "",
-            "notes": f"gt_photos: {len(good_rulers)} кадр(а) с рулеткой",
+            "notes": f"gt_photos: {len(good_rulers)} кадр(а) с рулеткой" + note_pair,
         })
 
     pid2scene = {pid: pids[0] for pids in front_md5s.values() for pid in pids}
     for row in rows:
         row["scene"] = pid2scene.get(row["id"], row["id"])
+
+    # Папки пар-дублей на диске (остатки прогонов до дедупа): по --prune-dups
+    # удаляем ТОЛЬКО проверенный байтовый дубль (ровно front.jpg+back.jpg с md5
+    # пары представителя — ревью цикла 18: совпадение имени папки не повод
+    # сносить чужое содержимое); иначе только предупреждаем.
+    pruned = 0
+    stale: list[str] = []
+    for pid, (rep, fmd5, bmd5) in sorted(dup_of.items()):
+        d = pairs_root / pid
+        if not d.is_dir():
+            continue
+        try:
+            extras = sorted(p.name for p in d.iterdir()
+                            if p.name not in ("front.jpg", "back.jpg"))
+            is_byte_dup = (
+                not extras
+                and (d / "front.jpg").is_file() and (d / "back.jpg").is_file()
+                and hashlib.md5((d / "front.jpg").read_bytes()).hexdigest() == fmd5
+                and hashlib.md5((d / "back.jpg").read_bytes()).hexdigest() == bmd5)
+        except OSError as exc:
+            notes.append(f"{d}: не удалось проверить содержимое ({exc}) — не тронута")
+            continue
+        if not is_byte_dup:
+            notes.append(f"{d}: НЕ байтовый дубль пары {rep}"
+                         + (f" (лишние файлы: {', '.join(extras)})" if extras else "")
+                         + " — не тронута, разберитесь вручную")
+            continue
+        if args.prune_dups:
+            try:
+                (d / "front.jpg").unlink()
+                (d / "back.jpg").unlink()
+                d.rmdir()
+                pruned += 1
+            except OSError as exc:
+                problems.append(f"{d}: не удалось удалить ({exc})")
+        else:
+            stale.append(pid)
+    if stale:
+        notes.append("в local_pairs лежат папки пар-дублей: " + ", ".join(stale)
+                     + " — удалит перезапуск с --prune-dups")
 
     # корень datasets/ иначе создаётся лениво первым _copy; при прогоне, где ВСЕ
     # пары битые (ни одного копирования), его нет — журнал упал бы FileNotFoundError
@@ -212,7 +290,9 @@ def main() -> int:
 
     print(f"Ям обработано: {len(rows)} из {len(pit_dirs)}; файлов скопировано: {copied}, "
           f"пропущено (уже на месте): {skipped}")
-    print(f"Сцен (уникальных кадров front): {len(front_md5s)}")
+    print(f"Сцен (уникальных кадров front): {len(front_md5s)}; "
+          f"байтовых пар-дублей не копировалось: {dup_pairs}"
+          + (f"; папок-дублей удалено (--prune-dups): {pruned}" if pruned else ""))
     for pids in sorted(front_md5s.values()):
         if len(pids) > 1:
             print(f"  сцена {pids[0]}: общий кадр у ям {', '.join(pids)}")

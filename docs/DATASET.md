@@ -67,7 +67,10 @@
 
 ```text
 datasets/
-  local_pairs/            # пары для --pairs-dir (структура уже поддержана CLI)
+  local_pairs/            # пары для --pairs-dir (структура уже поддержана CLI);
+                          # байтовые пары-дубли (общий кадр соседних ям) ingest
+                          # не копирует — остаётся пара представителя (наименьший
+                          # id); остатки старых прогонов чистит --prune-dups
     001/
       front.jpg
       back.jpg
@@ -211,8 +214,8 @@ names:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\prepare_local_finetune.py
-# 48 пар -> уникальные сцены (дедуп по кадру front), сплит по сценам,
-# затем разметить боксы в images\**\*.jpg -> labels\**\*.txt
+# пары local_pairs (после ингеста 2026-07-16 уже дедуплицированы: 1 пара =
+# 1 сцена) -> сплит по сценам, затем разметить боксы в images\**\*.jpg -> labels\**\*.txt
 ```
 
 ### Train/val: делить по ЛОКАЦИЯМ, не по кадрам
@@ -259,6 +262,8 @@ Windows-путь `C:/...` там не существует, укажи путь 
 $env:PYTHONPATH="src"
 .\.venv\Scripts\python.exe -m road_defect.cli --pairs-dir datasets\local_pairs --output outputs_pairs --ensemble
 # сводка: outputs_pairs\pairs_summary.csv; сверить с datasets\journal.csv
+# ⚠️ перегонять в ЧИСТУЮ папку: после дедупа пар (2026-07-16) старые отчёты
+# удалённых id-дублей иначе останутся лежать и исказят статистику по парам
 ```
 
 Разбор ошибок по группам (пропуск / лишний объект / плохой контур) — см.

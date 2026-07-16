@@ -71,7 +71,8 @@ $env:PYTHONPATH="src"
 
 ## Данные
 - Исходники: `Проэкт/Проэкт/Ямки/Яма N/{Front,Back,Эталоны}` (48 ям).
-- Ингест пар: `datasets/local_pairs/NNN/{front,back}.jpg` (`scripts/ingest_local_pairs.py`).
+- Ингест пар: `datasets/local_pairs/NNN/{front,back}.jpg` (`scripts/ingest_local_pairs.py`);
+  байтовые пары-дубли не копируются (общий кадр соседних ям): 48 ям → 28 уникальных пар.
 - Оверлеи пар: `outputs_pairs/`. Полнокадровые оверлеи ЧАСТО несут ложные боксы.
 
 ## Скрипты (`scripts/`)
