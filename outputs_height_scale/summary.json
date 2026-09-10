@@ -1,0 +1,1017 @@
+{
+ "stats": {
+  "n_views": 96,
+  "n_ok": 18,
+  "refusals": {
+   "no_sky_anchor": 36,
+   "ambiguous_multiple_potholes": 23,
+   "no_pothole": 17,
+   "pit_too_far": 2
+  },
+  "span_vs_feret_max_cm": {
+   "n": 7,
+   "mae_cm": 63.6,
+   "median_err_cm": 70.9,
+   "median_abs_err_cm": 70.9
+  },
+  "span_vs_feret_min_cm": {
+   "n": 7,
+   "mae_cm": 17.6,
+   "median_err_cm": 14.7,
+   "median_abs_err_cm": 14.7
+  },
+  "span_vs_width_transverse_cm": {
+   "n": 7,
+   "mae_cm": 21.2,
+   "median_err_cm": 20.5,
+   "median_abs_err_cm": 20.5
+  },
+  "front_back_feret_max_rel_diff_pct": {
+   "n_pits": 3,
+   "median": 64.4,
+   "p90": 64.4
+  },
+  "theta_deg": {
+   "median": 11.6,
+   "min": 8.7,
+   "max": 13.4
+  },
+  "depth_estimates": {
+   "n_point": 4,
+   "n_upper_bound": 14,
+   "n_unavailable": 0,
+   "point_median_cm": 1.6,
+   "point_max_cm": 2.1,
+   "upper_bound_median_cm": 1.1,
+   "share_consistent_with_field_1_3cm": 1.0
+  }
+ },
+ "per_pit": {
+  "001": {
+   "pit": "001",
+   "span_cm": 29.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "ok",
+     "theta": 8.65,
+     "D_m": 7.17,
+     "feret_max": 122.1,
+     "feret_min": 54.7,
+     "wt": 58.6,
+     "area_cm2": 4594.0,
+     "band_pct": 22.0,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 1.5,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    }
+   }
+  },
+  "002": {
+   "pit": "002",
+   "span_cm": 30.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 12.67,
+     "D_m": 7.32,
+     "feret_max": 50.5,
+     "feret_min": 50.1,
+     "wt": 50.5,
+     "area_cm2": 2026.0,
+     "band_pct": 21.9,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 0.7,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "003": {
+   "pit": "003",
+   "span_cm": 39.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 11.57,
+     "D_m": 7.52,
+     "feret_max": 65.0,
+     "feret_min": 52.9,
+     "wt": 50.7,
+     "area_cm2": 2446.0,
+     "band_pct": 22.3,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 1.2,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "004": {
+   "pit": "004",
+   "span_cm": 25.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 11.57,
+     "D_m": 7.52,
+     "feret_max": 65.0,
+     "feret_min": 52.9,
+     "wt": 50.7,
+     "area_cm2": 2446.0,
+     "band_pct": 22.3,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 1.2,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "005": {
+   "pit": "005",
+   "span_cm": 30.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 13.37,
+     "D_m": 5.0,
+     "feret_max": 153.2,
+     "feret_min": 59.8,
+     "wt": 64.8,
+     "area_cm2": 5372.0,
+     "band_pct": 18.8,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 1.4,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "006": {
+   "pit": "006",
+   "span_cm": 80.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 10.68,
+     "D_m": 5.61,
+     "feret_max": 96.7,
+     "feret_min": 72.7,
+     "wt": 72.3,
+     "area_cm2": 5677.0,
+     "band_pct": 19.7,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 1.5,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "007": {
+   "pit": "007",
+   "span_cm": 70.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "008": {
+   "pit": "008",
+   "span_cm": 30.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "009": {
+   "pit": "009",
+   "span_cm": 95.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "010": {
+   "pit": "010",
+   "span_cm": 50.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "011": {
+   "pit": "011",
+   "span_cm": 38.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_pothole"
+    }
+   }
+  },
+  "012": {
+   "pit": "012",
+   "span_cm": 45.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "013": {
+   "pit": "013",
+   "span_cm": 45.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "014": {
+   "pit": "014",
+   "span_cm": 45.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "015": {
+   "pit": "015",
+   "span_cm": 40.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "no_pothole"
+    }
+   }
+  },
+  "016": {
+   "pit": "016",
+   "span_cm": 95.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_pothole"
+    }
+   }
+  },
+  "017": {
+   "pit": "017",
+   "span_cm": 52.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "no_pothole"
+    }
+   }
+  },
+  "018": {
+   "pit": "018",
+   "span_cm": 37.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 13.04,
+     "D_m": 8.99,
+     "feret_max": 107.9,
+     "feret_min": 50.4,
+     "wt": 50.8,
+     "area_cm2": 4141.0,
+     "band_pct": 24.1,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 0.8,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "ok",
+     "theta": 12.08,
+     "D_m": 6.62,
+     "feret_max": 109.2,
+     "feret_min": 49.4,
+     "wt": 50.2,
+     "area_cm2": 4158.0,
+     "band_pct": 21.1,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 0.6,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    }
+   }
+  },
+  "019": {
+   "pit": "019",
+   "span_cm": 63.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "pit_too_far"
+    },
+    "back": {
+     "outcome": "ok",
+     "theta": 12.74,
+     "D_m": 7.78,
+     "feret_max": 169.0,
+     "feret_min": 29.6,
+     "wt": 33.4,
+     "area_cm2": 3863.0,
+     "band_pct": 22.4,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 0.7,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    }
+   }
+  },
+  "020": {
+   "pit": "020",
+   "span_cm": 24.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "pit_too_far"
+    },
+    "back": {
+     "outcome": "ok",
+     "theta": 12.74,
+     "D_m": 7.78,
+     "feret_max": 169.0,
+     "feret_min": 29.6,
+     "wt": 33.4,
+     "area_cm2": 3863.0,
+     "band_pct": 22.4,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 0.7,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    }
+   }
+  },
+  "021": {
+   "pit": "021",
+   "span_cm": 33.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "022": {
+   "pit": "022",
+   "span_cm": 52.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "023": {
+   "pit": "023",
+   "span_cm": 40.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "024": {
+   "pit": "024",
+   "span_cm": 58.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "ambiguous_multiple_potholes"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "025": {
+   "pit": "025",
+   "span_cm": null,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "026": {
+   "pit": "026",
+   "span_cm": 29.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_pothole"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "027": {
+   "pit": "027",
+   "span_cm": 40.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "028": {
+   "pit": "028",
+   "span_cm": 40.0,
+   "shared_scene": false,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ok",
+     "theta": 11.5,
+     "D_m": 8.93,
+     "feret_max": 88.8,
+     "feret_min": 54.7,
+     "wt": 68.7,
+     "area_cm2": 3454.0,
+     "band_pct": 24.2,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 0.4,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    }
+   }
+  },
+  "029": {
+   "pit": "029",
+   "span_cm": 24.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ambiguous_multiple_potholes"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "030": {
+   "pit": "030",
+   "span_cm": 18.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ambiguous_multiple_potholes"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "031": {
+   "pit": "031",
+   "span_cm": 45.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ambiguous_multiple_potholes"
+    },
+    "back": {
+     "outcome": "no_sky_anchor"
+    }
+   }
+  },
+  "032": {
+   "pit": "032",
+   "span_cm": 46.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "033": {
+   "pit": "033",
+   "span_cm": 65.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "034": {
+   "pit": "034",
+   "span_cm": 60.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "035": {
+   "pit": "035",
+   "span_cm": 61.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "036": {
+   "pit": "036",
+   "span_cm": 145.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "037": {
+   "pit": "037",
+   "span_cm": 50.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "038": {
+   "pit": "038",
+   "span_cm": null,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "039": {
+   "pit": "039",
+   "span_cm": 48.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "040": {
+   "pit": "040",
+   "span_cm": 143.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "041": {
+   "pit": "041",
+   "span_cm": 130.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "042": {
+   "pit": "042",
+   "span_cm": 61.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "043": {
+   "pit": "043",
+   "span_cm": null,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "no_sky_anchor"
+    },
+    "back": {
+     "outcome": "ambiguous_multiple_potholes"
+    }
+   }
+  },
+  "044": {
+   "pit": "044",
+   "span_cm": 55.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 10.91,
+     "D_m": 10.4,
+     "feret_max": 76.5,
+     "feret_min": 53.0,
+     "wt": 53.2,
+     "area_cm2": 3165.0,
+     "band_pct": 23.0,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 1.1,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "no_pothole"
+    }
+   }
+  },
+  "045": {
+   "pit": "045",
+   "span_cm": 28.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 10.91,
+     "D_m": 10.4,
+     "feret_max": 76.5,
+     "feret_min": 53.0,
+     "wt": 53.2,
+     "area_cm2": 3165.0,
+     "band_pct": 23.0,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 1.1,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "no_pothole"
+    }
+   }
+  },
+  "046": {
+   "pit": "046",
+   "span_cm": 45.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 10.91,
+     "D_m": 10.4,
+     "feret_max": 76.5,
+     "feret_min": 53.0,
+     "wt": 53.2,
+     "area_cm2": 3165.0,
+     "band_pct": 23.0,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": null,
+      "low_cm": null,
+      "high_cm": null,
+      "upper_bound_cm": 1.1,
+      "method": "below_noise_upper_bound",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "no_pothole"
+    }
+   }
+  },
+  "047": {
+   "pit": "047",
+   "span_cm": 55.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 9.43,
+     "D_m": 6.14,
+     "feret_max": 111.0,
+     "feret_min": 96.6,
+     "wt": 83.7,
+     "area_cm2": 7714.0,
+     "band_pct": 20.3,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": 2.1,
+      "low_cm": 1.2,
+      "high_cm": 3.5,
+      "upper_bound_cm": null,
+      "method": "rel_norm_x_transverse_width",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "ok",
+     "theta": 12.46,
+     "D_m": 3.79,
+     "feret_max": 56.9,
+     "feret_min": 55.9,
+     "wt": 57.1,
+     "area_cm2": 2799.0,
+     "band_pct": 17.5,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": 1.1,
+      "low_cm": 0.7,
+      "high_cm": 1.8,
+      "upper_bound_cm": null,
+      "method": "rel_norm_x_transverse_width",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    }
+   }
+  },
+  "048": {
+   "pit": "048",
+   "span_cm": 27.0,
+   "shared_scene": true,
+   "views": {
+    "front": {
+     "outcome": "ok",
+     "theta": 9.43,
+     "D_m": 6.14,
+     "feret_max": 111.0,
+     "feret_min": 96.6,
+     "wt": 83.7,
+     "area_cm2": 7714.0,
+     "band_pct": 20.3,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": 2.1,
+      "low_cm": 1.2,
+      "high_cm": 3.5,
+      "upper_bound_cm": null,
+      "method": "rel_norm_x_transverse_width",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    },
+    "back": {
+     "outcome": "ok",
+     "theta": 12.46,
+     "D_m": 3.79,
+     "feret_max": 56.9,
+     "feret_min": 55.9,
+     "wt": 57.1,
+     "area_cm2": 2799.0,
+     "band_pct": 17.5,
+     "bucket": "shallow",
+     "est": {
+      "available": true,
+      "point_cm": 1.1,
+      "low_cm": 0.7,
+      "high_cm": 1.8,
+      "upper_bound_cm": null,
+      "method": "rel_norm_x_transverse_width",
+      "confidence": "low",
+      "vs_gost_5cm": "below",
+      "reason": null
+     }
+    }
+   }
+  }
+ }
+}

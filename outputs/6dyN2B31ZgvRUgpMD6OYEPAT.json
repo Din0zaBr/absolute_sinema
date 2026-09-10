@@ -1,0 +1,37 @@
+{
+  "image": "6dyN2B31ZgvRUgpMD6OYEPATmfTFYEpY7CIiG1a2AIRWblHt9_Qf9tmc_dcrJUHW2EiN-6PGiAtdw235Pq4OmHz5.jpg",
+  "mode": "single",
+  "image_size_px": [
+    2560,
+    1152
+  ],
+  "scale": {
+    "available": false,
+    "mm_per_px": null,
+    "reference": {
+      "type": null,
+      "subtype": null,
+      "known_mm": null,
+      "measured_px": null
+    },
+    "homography_applied": false,
+    "error_band_pct": null,
+    "tilt_deg": null,
+    "method": null,
+    "confidence": null,
+    "cross_checked": false,
+    "agreeing_types": [],
+    "candidates_n": 0,
+    "note": "Люк в кадре не найден (Hough)."
+  },
+  "defects": [],
+  "location": {
+    "available": false,
+    "source": "manual_later"
+  },
+  "warnings": [
+    "Люк в кадре не найден (Hough).",
+    "Дефекты не обнаружены."
+  ],
+  "engine_version": "0.1.0"
+}

@@ -1,0 +1,74 @@
+{
+  "image": "front.jpg",
+  "mode": "two_view_unmatched",
+  "image_size_px": [
+    4096,
+    1844
+  ],
+  "scale": {
+    "available": false,
+    "mm_per_px": null,
+    "reference": {
+      "type": null,
+      "subtype": null,
+      "known_mm": null,
+      "measured_px": null
+    },
+    "homography_applied": false,
+    "error_band_pct": null,
+    "tilt_deg": null,
+    "method": null,
+    "confidence": null,
+    "cross_checked": false,
+    "agreeing_types": [],
+    "candidates_n": 0,
+    "note": "Кандидатов-кругов: 1, но люк не подтверждён контуром (возможно колесо/яма/заплатка) — масштаб не выдан."
+  },
+  "defects": [],
+  "location": {
+    "available": false,
+    "source": "manual_later"
+  },
+  "warnings": [
+    "[вид A] Кандидатов-кругов: 1, но люк не подтверждён контуром (возможно колесо/яма/заплатка) — масштаб не выдан.",
+    "[вид A] Дефекты не обнаружены.",
+    "[вид B] Кандидатов-кругов: 1, но люк не подтверждён контуром (возможно колесо/яма/заплатка) — масштаб не выдан.",
+    "[вид B] Масштаб от высоты камеры H=1.70 м (prior_pitch, тангаж 11.6°): размеры дефектов — ОЦЕНКА (confidence=low, certifiable=false), не для актирования; Д/Ш — размер МАСКИ дефекта (включая тёмный ореол), не рулеточного «разрушения».",
+    "[вид B] Тангаж взят из ПРИОРА (по кадру подтверждены только крен и направление уклона): значения валидны лишь для той же постановки съёмки — стоя, в полный рост, с заявленной высоты.",
+    "Слияние двух видов НЕ выполнено: в одном из видов нет уверенной одиночной ямы для сопоставления. Показаны одиночные результаты вида A."
+  ],
+  "engine_version": "0.1.0",
+  "fusion": {
+    "n_views": 2,
+    "matched": false,
+    "fused": false,
+    "agreement": null,
+    "disagreement_pct": null,
+    "per_view": [
+      {
+        "image": "front.jpg",
+        "pothole_found": false,
+        "select_status": "no_pothole",
+        "scale_available": false,
+        "area_cm2": null,
+        "view_tilt_deg": null,
+        "confidence": null
+      },
+      {
+        "image": "back.jpg",
+        "pothole_found": true,
+        "select_status": "ok",
+        "scale_available": false,
+        "area_cm2": 10692.1,
+        "view_tilt_deg": null,
+        "confidence": "low"
+      }
+    ],
+    "note": "Сертифицируемая глубина в см НЕ выдаётся: два косых кадра — это не Сценарий C (SfM с известной базой). Только площадь скорректирована за наклон; при --depth в metric переносится явно помеченная ОЦЕНКА глубины вида A (depth_source)."
+  },
+  "pair_inputs": {
+    "front": "datasets\\local_pairs\\010\\front.jpg",
+    "back": "datasets\\local_pairs\\010\\back.jpg"
+  },
+  "pair_id": "010"
+}

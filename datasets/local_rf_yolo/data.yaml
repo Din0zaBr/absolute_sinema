@@ -1,0 +1,10 @@
+# сгенерирован scripts/prepare_local_finetune.py (DATASET.md §6)
+path: C:/Users/Kordon/doroga/datasets/local_rf_yolo
+train: images/train
+val: images/val
+names:
+  0: D00
+  1: D10
+  2: D20
+  3: D40
+  4: Repair

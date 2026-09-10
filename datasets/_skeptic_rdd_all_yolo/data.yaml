@@ -1,0 +1,4 @@
+path: C:/Users/Kordon/doroga_govna/datasets/_skeptic_rdd_all_yolo
+train: images/train
+val: images/val
+names: {0: 'D00', 1: 'D10', 2: 'D20', 3: 'D40', 4: 'Repair'}

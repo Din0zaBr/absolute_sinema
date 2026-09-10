@@ -1,0 +1,22 @@
+name,dz,d1,d2,expect,reg,note,depth_cm_p90,depth_cm_median,coverage,coverage_core,n_matches,n_core_matches,saturated_frac,mask_iou,baseline_m,n_reg_inliers,method,_elapsed_s,_true_baseline_m,verdict,why
+dz3_D4,0.03,4.0,4.0,value,affine,номинал,3.0,3.0,0.507,0.755,6540,3012,0.0,0.986,8.001,785,two_view_plane_parallax,4.0,8.0,PASS,err=0.0см (tol 1.0)
+dz5_D4,0.05,4.0,4.0,value,affine,номинал,5.0,5.0,0.459,0.618,5926,2465,0.0,0.987,8.003,723,two_view_plane_parallax,3.6,8.0,PASS,err=0.0см (tol 1.0)
+dz8_D4,0.08,4.0,4.0,value,affine,глубокая на D=4: взаимно видимо 44.5% дна (ray-check ревью) — ядро в истинных координатах обязано это измерить,8.0,8.0,0.344,0.177,4448,707,0.0,0.986,7.999,758,two_view_plane_parallax,3.6,8.0,PASS,err=0.0см (tol 2.0)
+dz3_D25,0.03,2.5,2.5,value,affine,"номинал, ближе",3.0,3.0,0.574,0.879,7424,3545,0.0,0.994,5.002,1772,two_view_plane_parallax,3.4,5.0,PASS,err=0.0см (tol 1.0)
+dz5_D25,0.05,2.5,2.5,value,affine,"номинал, ближе",5.0,5.0,0.511,0.768,6615,3096,0.0,0.993,5.002,1786,two_view_plane_parallax,3.5,5.0,PASS,err=0.0см (tol 1.0)
+dz8_D25,0.08,2.5,2.5,value,affine,глубокая на рабочей дистанции,8.0,8.0,0.465,0.614,6009,2477,0.0,0.993,5.001,1775,two_view_plane_parallax,3.4,5.0,PASS,err=0.0см (tol 1.6)
+dz5_D4_seed7,0.05,4.0,4.0,value,affine,другая текстура/шум,5.0,5.0,0.5,0.632,6456,2521,0.0,0.985,8.004,771,two_view_plane_parallax,3.6,8.0,PASS,err=0.0см (tol 1.0)
+dz5_asym_D3_5,0.05,3.0,5.0,value,affine,несимметричные дистанции,5.0,5.0,0.394,0.486,5088,1948,0.0,0.986,8.005,599,two_view_plane_parallax,3.6,8.0,PASS,err=0.0см (tol 1.0)
+dz6_elong,0.06,2.5,2.5,value,affine,вытянутая колейная яма 0.9x0.2 м: регресс BLOCKER'а ревью (эрозия кругового диаметра опустошала ядро),6.0,6.0,0.736,0.606,6469,2125,0.003,0.992,5.002,1712,two_view_plane_parallax,3.4,5.0,PASS,err=0.0см (tol 1.2)
+patch_null,0.0,4.0,4.0,null,affine,плоская тёмная заплатка: глубины НЕТ,0.0,0.0,0.997,1.0,12866,3991,0.0,0.986,7.998,771,two_view_plane_parallax,3.4,8.0,PASS,p90=0.0см ~ 0
+dz8_D6_occl,0.08,6.0,6.0,refuse_or_value,affine,взаимное затенение дна: отказ лучше лжи,5.8,0.7,0.331,0.113,4285,443,0.0,0.979,11.999,139,two_view_plane_parallax,3.7,12.0,PASS,err=2.2см (tol 2.4)
+dz8_D6_steep,0.08,6.0,6.0,refuse_or_value,affine,крутые стенки: взаимной зоны дна почти нет,,,0.327,0.092,4229,360,0.0,0.979,11.995,130,floor_core_unmatched,3.7,12.0,PASS,честный отказ: floor_core_unmatched
+dz10_D4_steep,0.1,4.0,4.0,refuse_or_value,affine,глубокая с крутыми стенками на рабочей дистанции,,,0.322,0.058,4155,233,0.0,0.986,8.0,774,floor_core_unmatched,3.5,8.0,PASS,честный отказ: floor_core_unmatched
+dz5_wrong_hb,0.05,4.0,4.0,refuse,affine,рассинхрон калибровки высоты: обязан отказать,,,0.0,,0,,,,,189,registration_scale_mismatch,2.8,8.0,PASS,отказ: registration_scale_mismatch
+dz22_ceiling,0.22,2.5,2.5,refuse,affine,"дно глубже потолка скана dz_max=0.20: отказ, а не цензурированная статистика",,,0.148,0.0,9137,0,0.0,0.997,5.002,2233,floor_core_unmatched,6.1,5.0,PASS,отказ: floor_core_unmatched
+dz5_pitch05,0.05,4.0,4.0,value,affine,тангаж ±0.5° (подвеска),5.0,5.0,0.443,0.596,6226,2594,0.0,0.987,8.414,690,two_view_plane_parallax,3.6,8.0,PASS,err=0.0см (tol 1.5)
+dz5_pitch1,0.05,4.0,4.0,refuse_or_value,affine,тангаж ~1°,,,0.0,,0,,,,,353,registration_scale_mismatch,2.8,8.0,PASS,честный отказ: registration_scale_mismatch
+dz5_pitch05_sim,0.05,4.0,4.0,refuse_or_value,similarity,similarity-регистрация под тангажом,4.8,4.7,0.185,0.187,2601,810,0.0,0.92,8.232,197,two_view_plane_parallax,3.6,8.0,PASS,err=0.2см (tol 1.5)
+dz5_hb105,0.05,4.0,4.0,value,affine,разные высоты камер (обе известны),5.0,5.0,0.42,0.503,5427,2006,0.0,0.985,8.0,643,two_view_plane_parallax,3.6,8.0,PASS,err=0.0см (tol 1.0)
+dz5_mask_erode,0.05,4.0,4.0,value,affine,маска на 9 px уже,5.0,5.0,0.345,0.759,3622,2327,0.0,0.949,8.0,698,two_view_plane_parallax,3.4,8.0,PASS,err=0.0см (tol 1.0)
+dz5_mask_dilate,0.05,4.0,4.0,value,affine,маска на 9 px шире,5.0,5.0,0.555,0.497,8623,2497,0.0,0.96,8.0,795,two_view_plane_parallax,3.6,8.0,PASS,err=0.0см (tol 1.0)

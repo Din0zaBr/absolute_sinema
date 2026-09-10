@@ -1,0 +1,37 @@
+{
+  "image": "001_front.jpg",
+  "mode": "single",
+  "image_size_px": [
+    4096,
+    1844
+  ],
+  "scale": {
+    "available": false,
+    "mm_per_px": null,
+    "reference": {
+      "type": null,
+      "subtype": null,
+      "known_mm": null,
+      "measured_px": null
+    },
+    "homography_applied": false,
+    "error_band_pct": null,
+    "tilt_deg": null,
+    "method": null,
+    "confidence": null,
+    "cross_checked": false,
+    "agreeing_types": [],
+    "candidates_n": 0,
+    "note": "Кандидатов-кругов: 2, но люк не подтверждён контуром (возможно колесо/яма/заплатка) — масштаб не выдан."
+  },
+  "defects": [],
+  "location": {
+    "available": false,
+    "source": "manual_later"
+  },
+  "warnings": [
+    "Кандидатов-кругов: 2, но люк не подтверждён контуром (возможно колесо/яма/заплатка) — масштаб не выдан.",
+    "Дефекты не обнаружены."
+  ],
+  "engine_version": "0.1.0"
+}

@@ -1,0 +1,53 @@
+��������� ���: 48 -> outputs_pairs
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/287 [00:00<?, ?it/s]Loading weights: 100%|##########| 287/287 [00:00<00:00, 2889.37it/s]
+  001                   unmatched  режим: two_view_unmatched  дефектов:  0  файл: 001__front__back_pair.json
+  002                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 002__front_2__back_2_pair.json
+  003                   unmatched  режим: two_view_unmatched  дефектов:  4  файл: 003__front_3__back_3_pair.json
+  004                   unmatched  режим: two_view_unmatched  дефектов:  4  файл: 004__front_4__back_4_pair.json
+  005                   unmatched  режим: two_view_unmatched  дефектов:  2  файл: 005__front_5__back_5_pair.json
+  006                   unmatched  режим: two_view_unmatched  дефектов:  2  файл: 006__front_6__back_6_pair.json
+  007                   unmatched  режим: two_view_unmatched  дефектов:  0  файл: 007__front_7__back_7_pair.json
+  008                   unmatched  режим: two_view_unmatched  дефектов:  0  файл: 008__front_8__back_8_pair.json
+  009                   unmatched  режим: two_view_unmatched  дефектов:  2  файл: 009__front_9__back_9_pair.json
+  010                   unmatched  режим: two_view_unmatched  дефектов:  0  файл: 010__front_10__back_10_pair.json
+  011                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 011__front_11__back_11_pair.json
+  012                   unmatched  режим: two_view_unmatched  дефектов:  2  файл: 012__front_12__back_12_pair.json
+  013                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 013__front_13__back_13_pair.json
+  014                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 014__front_14__back_14_pair.json
+  015                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 015__front_15__back_15_pair.json
+  016                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 016__front_16__back_16_pair.json
+  017                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 017__front_17__back_17_pair.json
+  018                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 018__front_18__back_18_pair.json
+  019                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 019__front_19__back_19_pair.json
+  020                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 020__front_20__back_20_pair.json
+  021                   unmatched  режим: two_view_unmatched  дефектов:  0  файл: 021__front_21__back_21_pair.json
+  022                   unmatched  режим: two_view_unmatched  дефектов:  2  файл: 022__front_22__back_22_pair.json
+  023                   unmatched  режим: two_view_unmatched  дефектов:  2  файл: 023__front_23__back_23_pair.json
+  024                   unmatched  режим: two_view_unmatched  дефектов:  2  файл: 024__front_24__back_24_pair.json
+  025                   unmatched  режим: two_view_unmatched  дефектов:  0  файл: 025__front_25__back_25_pair.json
+  026                   unmatched  режим: two_view_unmatched  дефектов:  0  файл: 026__front_26__back_26_pair.json
+  027                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 027__front_27__back_27_pair.json
+  028                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 028__front_28__back_28_pair.json
+  029                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 029__front_29__back_29_pair.json
+  030                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 030__front_30__back_30_pair.json
+  031                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 031__front_31__back_31_pair.json
+  032                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 032__front_32__back_32_pair.json
+  033                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 033__front_33__back_33_pair.json
+  034                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 034__front_34__back_34_pair.json
+  035                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 035__front_35__back_35_pair.json
+  036                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 036__front_36__back_36_pair.json
+  037                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 037__front_37__back_37_pair.json
+  038                   unmatched  режим: two_view_unmatched  дефектов:  4  файл: 038__front_38__back_38_pair.json
+  039                   unmatched  режим: two_view_unmatched  дефектов:  4  файл: 039__front_39__back_39_pair.json
+  040                   unmatched  режим: two_view_unmatched  дефектов:  4  файл: 040__front_40__back_40_pair.json
+  041                   unmatched  режим: two_view_unmatched  дефектов:  4  файл: 041__front_41__back_41_pair.json
+  042                   unmatched  режим: two_view_unmatched  дефектов:  4  файл: 042__front_42__back_42_pair.json
+  043                   unmatched  режим: two_view_unmatched  дефектов:  4  файл: 043__front_43__back_43_pair.json
+  044                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 044__front_44__back_44_pair.json
+  045                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 045__front_45__back_45_pair.json
+  046                   unmatched  режим: two_view_unmatched  дефектов:  3  файл: 046__front_46__back_46_pair.json
+  047                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 047__front_47__back_47_pair.json
+  048                   unmatched  режим: two_view_unmatched  дефектов:  1  файл: 048__front_48__back_48_pair.json
+Сводка: outputs_pairs\pairs_summary.csv
+Готово.

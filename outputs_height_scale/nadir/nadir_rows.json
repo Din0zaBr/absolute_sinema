@@ -1,0 +1,84 @@
+[
+ {
+  "pit": "001",
+  "file": "datasets\\gt_photos\\001_ruler_1.jpg",
+  "outcome": "ticks_aperiodic"
+ },
+ {
+  "pit": "002",
+  "file": "datasets\\gt_photos\\002_ruler_1.jpg",
+  "outcome": "too_few_ticks"
+ },
+ {
+  "pit": "005",
+  "file": "datasets\\gt_photos\\005_ruler_1.jpg",
+  "ppcm": 122.59733809444654,
+  "period_variation": 0.033,
+  "n_ticks": 14.5,
+  "thirds_ppcm": [
+   125.74,
+   122.71,
+   121.71
+  ],
+  "tape_width_px": 157.5,
+  "tape_width_cm": 1.28,
+  "masks": [],
+  "outcome": "ok_no_detection"
+ },
+ {
+  "pit": "006",
+  "file": "datasets\\gt_photos\\006_ruler_1.jpg",
+  "ppcm": 70.0800180410053,
+  "period_variation": 0.037,
+  "n_ticks": 25.1,
+  "thirds_ppcm": [
+   69.69,
+   69.31,
+   71.89
+  ],
+  "tape_width_px": 76.0,
+  "tape_width_cm": 1.08,
+  "masks": [
+   {
+    "conf": 0.336,
+    "feret_max_cm": 6.3,
+    "feret_min_cm": 3.2,
+    "area_cm2": 13.0
+   },
+   {
+    "conf": 0.785,
+    "feret_max_cm": 4.6,
+    "feret_min_cm": 3.5,
+    "area_cm2": 8.0
+   },
+   {
+    "conf": 0.766,
+    "feret_max_cm": 1.8,
+    "feret_min_cm": 1.7,
+    "area_cm2": 2.0
+   }
+  ],
+  "outcome": "ok"
+ },
+ {
+  "pit": "018",
+  "file": "datasets\\gt_photos\\018_ruler_1.jpg",
+  "ppcm": 31.522436834375657,
+  "period_variation": 0.055,
+  "n_ticks": 42.1,
+  "thirds_ppcm": [
+   32.84,
+   31.56,
+   31.11
+  ],
+  "tape_width_px": 84.1,
+  "tape_width_cm": 2.67,
+  "masks": [],
+  "outcome": "ok_no_detection"
+ },
+ {
+  "pit": "028",
+  "file": "datasets\\gt_photos\\028_ruler_1.jpg",
+  "outcome": "ticks_aperiodic"
+ }
+]

@@ -1,0 +1,3 @@
+<annotation><size><width>600</width><height>600</height></size>
+<object><name>D00</name><bndbox><xmin>10</xmin><ymin>10</ymin><xmax>100</xmax><ymax>100</ymax></bndbox></object>
+</annotation>
