@@ -43,4 +43,5 @@ outputs_pairs_run.log
 
 # локальные артефакты (конфиг Obsidian-вольта, бинарные отчёты)
 .obsidian/
+.claude/
 *.docx
